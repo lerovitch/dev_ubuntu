@@ -1,0 +1,14 @@
+- name: create user
+  user: name=developer password=$6$mUSuXNobrXc6R2oA$QE3co9llnxpcEM9a1H2wxc2TWoj3vIum3qpJovkJWrJkyN4DVGaPzgyWZJscZbUsClAMmIg61PH5uQkCf0wGX/
+  tags:
+    - developer
+	
+- name: adding repositories
+  action: apt_repository repo={{item}} state=present
+  with_items:
+  - ppa:gnome-terminator
+  
+ - name: adding packages
+  action: apt pkg={{item}} state=installed
+  with_items:
+  - terminator

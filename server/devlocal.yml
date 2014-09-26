@@ -1,0 +1,9 @@
+---
+# file: server/devlocal.yml
+# Purpose: Example playbook to build-out a basic local dev VM
+
+- name: setup a local dev server
+  hosts: devlocal
+  remote_user: "{{ skyscanner_user }}"
+  roles:
+    - developer

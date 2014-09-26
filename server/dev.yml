@@ -1,0 +1,5 @@
+---
+# file:    server/dev.yml
+# purpose: playbook to buildout a local developer VM to a standard shape
+
+- include: devlocal.yml

@@ -1,0 +1,11 @@
+# file: local
+# test inventory file for building out a dev VM on a local Windows workstation
+
+[localhost]
+127.0.0.1
+
+[devlocal:children]
+localhost
+
+[zookeeper_servers]
+127.0.0.1 zoo_id=1
