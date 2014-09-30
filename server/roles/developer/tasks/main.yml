@@ -1,5 +1,12 @@
 - name: create user
-  user: name=developer password=$6$mUSuXNobrXc6R2oA$QE3co9llnxpcEM9a1H2wxc2TWoj3vIum3qpJovkJWrJkyN4DVGaPzgyWZJscZbUsClAMmIg61PH5uQkCf0wGX/
+  user: name={{ user }} shell=/bin/bash remove=yes state=present password=$6$mUSuXNobrXc6R2oA$QE3co9llnxpcEM9a1H2wxc2TWoj3vIum3qpJovkJWrJkyN4DVGaPzgyWZJscZbUsClAMmIg61PH5uQkCf0wGX/
+  tags:
+    - developer
+
+- name: create a sudoers include file
+  template: src={{ item.path }} dest={{ item.dest }} mode=0440 owner=root group=root
+  with_items:
+    - { path: 'sudo/sudoers.include.template.j2', dest: '/etc/sudoers.d/{{ user }}' }
   tags:
     - developer
 	

@@ -1,0 +1,4 @@
+{# template sudoers include file for creating granular sudo permissions for newly provisioned users #}
+User_Alias SKYSCANNER = {{ skyscanner_user }}
+Cmnd_Alias SKYSCANNER = /bin/rpm, /usr/bin/up2date, /usr/bin/yum, /bin/sh
+SKYSCANNER              ALL = NOPASSWD: SKYSCANNER
