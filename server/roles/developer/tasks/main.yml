@@ -20,9 +20,11 @@
   with_items:
   - terminator
   - git       
-
-- name: add dotfiles repo
-  git: repo=ssh://git@github.com/lerovitch/dotfiles.git dest=/home/{{user}}
+  - vim-gnome
+  - subversion
+  - ctags
+  - ack-grep
+ 
 
 - include: skyscanner.yml
 
