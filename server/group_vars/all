@@ -1,4 +1,4 @@
 ---
 
 user: developer
-group: "{{ developer }}
+group: "{{ developer }}"

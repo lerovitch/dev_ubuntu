@@ -1,0 +1,456 @@
+Host intci
+   HostName 10.152.192.225
+   User CORP\admin_sergisorribas
+Host mapstore_int
+   HostName 10.151.193.31
+   User CORP\admin_sergisorribas
+
+# INT REVIEW
+Host intrev-uk1-bls1
+   HostName 10.152.193.41
+   User CORP\admin_sergisorribas
+Host intrev-uk1-bls2
+   HostName 10.152.193.42
+   User CORP\admin_sergisorribas
+Host intrev-uk1-pa1
+   HostName 10.152.193.46
+   User CORP\admin_sergisorribas
+Host intrev-uk1-pa2
+   HostName 10.152.193.47
+   User CORP\admin_sergisorribas
+
+# PRE
+Host pre-uk2-bls1
+   HostName 10.102.192.53
+   User CORP\admin_sergisorribas
+Host pre-uk2-bls2
+   HostName 10.102.192.54
+   User CORP\admin_sergisorribas
+Host pre-uk2-bls3
+   HostName 10.102.192.55
+   User CORP\admin_sergisorribas
+Host pre-uk2-pa1
+   HostName 10.102.192.56
+   User CORP\admin_sergisorribas
+Host pre-uk2-pa2
+   HostName 10.102.192.57
+   User CORP\admin_sergisorribas
+Host pre-uk2-pa3
+   HostName 10.102.192.58
+   User CORP\admin_sergisorribas
+Host pre-uk2-pa4
+   HostName 10.102.192.59
+   User CORP\admin_sergisorribas
+Host pre-uk2-pa5
+   HostName 10.102.192.60
+   User CORP\admin_sergisorribas
+Host pre-uk2-pa6
+   HostName 10.102.192.61
+   User CORP\admin_sergisorribas
+Host svn-uk2
+   HostName 10.102.192.40
+   User CORP\admin_sergisorribas
+Host svn-uk1
+   HostName 10.101.192.40
+   User CORP\admin_sergisorribas
+Host jacob
+   HostName 10.206.100.106
+   User developer
+
+#UK1 PAs
+Host pro-uk1-pa1
+   HostName 10.101.192.151
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa2
+   HostName 10.101.192.152
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa3
+   HostName 10.101.192.153
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa4
+   HostName 10.101.192.154
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa5
+   HostName 10.101.192.155
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa6
+   HostName 10.101.192.156
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa7
+   HostName 10.101.192.157
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa8
+   HostName 10.101.192.158
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa9
+   HostName 10.101.192.159
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa10
+   HostName 10.101.192.160
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa11
+   HostName 10.101.192.161
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa12
+   HostName 10.101.192.162
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa13
+   HostName 10.101.192.163
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa14
+   HostName 10.101.192.164
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa15
+   HostName 10.101.192.165
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa16
+   HostName 10.101.192.166
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa17
+   HostName 10.101.192.167
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa18
+   HostName 10.101.192.168
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa19
+   HostName 10.101.192.169
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa20
+   HostName 10.101.192.170
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa21
+   HostName 10.101.192.171
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa22
+   HostName 10.101.192.172
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa23
+   HostName 10.101.192.173
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa24
+   HostName 10.101.192.174
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa25
+   HostName 10.101.192.175
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa26
+   HostName 10.101.192.176
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa27
+   HostName 10.101.192.177
+   User CORP\admin_sergisorribas
+Host pro-uk1-pa28
+   HostName 10.101.192.178
+   User CORP\admin_sergisorribas
+
+#UK2 PRO PA
+Host pro-uk2-pa1
+   HostName 10.102.192.151
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa2
+   HostName 10.102.192.152
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa3
+   HostName 10.102.192.153
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa4
+   HostName 10.102.192.154
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa5
+   HostName 10.102.192.155
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa6
+   HostName 10.102.192.156
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa7
+   HostName 10.102.192.157
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa8
+   HostName 10.102.192.158
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa9
+   HostName 10.102.192.159
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa10
+   HostName 10.102.192.160
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa11
+   HostName 10.102.192.161
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa12
+   HostName 10.102.192.162
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa13
+   HostName 10.102.192.163
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa14
+   HostName 10.102.192.164
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa15
+   HostName 10.102.192.165
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa16
+   HostName 10.102.192.166
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa17
+   HostName 10.102.192.167
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa18
+   HostName 10.102.192.168
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa19
+   HostName 10.102.192.169
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa20
+   HostName 10.102.192.170
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa21
+   HostName 10.102.192.171
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa22
+   HostName 10.102.192.172
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa23
+   HostName 10.102.192.173
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa24
+   HostName 10.102.192.174
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa25
+   HostName 10.102.192.175
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa26
+   HostName 10.102.192.176
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa27
+   HostName 10.102.192.177
+   User CORP\admin_sergisorribas
+Host pro-uk2-pa28
+   HostName 10.102.192.178
+   User CORP\admin_sergisorribas
+
+#SG1 PA
+Host pro-sg1-pa1
+   HostName 10.103.192.151
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa2
+   HostName 10.103.192.152
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa3
+   HostName 10.103.192.153
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa4
+   HostName 10.103.192.154
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa5
+   HostName 10.103.192.155
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa6
+   HostName 10.103.192.156
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa7
+   HostName 10.103.192.157
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa8
+   HostName 10.103.192.158
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa9
+   HostName 10.103.192.159
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa10
+   HostName 10.103.192.160
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa11
+   HostName 10.103.192.161
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa12
+   HostName 10.103.192.162
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa13
+   HostName 10.103.192.163
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa14
+   HostName 10.103.192.164
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa15
+   HostName 10.103.192.165
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa16
+   HostName 10.103.192.166
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa17
+   HostName 10.103.192.167
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa18
+   HostName 10.103.192.168
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa19
+   HostName 10.103.192.169
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa20
+   HostName 10.103.192.170
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa21
+   HostName 10.103.192.171
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa22
+   HostName 10.103.192.172
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa23
+   HostName 10.103.192.173
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa24
+   HostName 10.103.192.174
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa25
+   HostName 10.103.192.175
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa26
+   HostName 10.103.192.176
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa27
+   HostName 10.103.192.177
+   User CORP\admin_sergisorribas
+Host pro-sg1-pa28
+   HostName 10.103.192.178
+   User CORP\admin_sergisorribas
+
+#SG1 PA
+Host pro-hk1-pa1
+   HostName 10.104.192.151
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa2
+   HostName 10.104.192.152
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa3
+   HostName 10.104.192.153
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa4
+   HostName 10.104.192.154
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa5
+   HostName 10.104.192.155
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa6
+   HostName 10.104.192.156
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa7
+   HostName 10.104.192.157
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa8
+   HostName 10.104.192.158
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa9
+   HostName 10.104.192.159
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa10
+   HostName 10.104.192.160
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa11
+   HostName 10.104.192.161
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa12
+   HostName 10.104.192.162
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa13
+   HostName 10.104.192.163
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa14
+   HostName 10.104.192.164
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa15
+   HostName 10.104.192.165
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa16
+   HostName 10.104.192.166
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa17
+   HostName 10.104.192.167
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa18
+   HostName 10.104.192.168
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa19
+   HostName 10.104.192.169
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa20
+   HostName 10.104.192.170
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa21
+   HostName 10.104.192.171
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa22
+   HostName 10.104.192.172
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa23
+   HostName 10.104.192.173
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa24
+   HostName 10.104.192.174
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa25
+   HostName 10.104.192.175
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa26
+   HostName 10.104.192.176
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa27
+   HostName 10.104.192.177
+   User CORP\admin_sergisorribas
+Host pro-hk1-pa28
+   HostName 10.104.192.178
+   User CORP\admin_sergisorribas
+
+# PRO UK1 BLS
+Host pro-uk1-bls1
+   HostName 10.101.192.201
+   User CORP\admin_sergisorribas
+Host pro-uk1-bls2
+   HostName 10.101.192.202
+   User CORP\admin_sergisorribas
+Host pro-uk1-bls3
+   HostName 10.101.192.203
+   User CORP\admin_sergisorribas
+Host pro-uk1-bls4
+   HostName 10.101.192.204
+   User CORP\admin_sergisorribas
+Host pro-uk1-bls5
+   HostName 10.101.192.205
+   User CORP\admin_sergisorribas
+Host pro-uk1-bls6
+   HostName 10.101.192.206
+   User CORP\admin_sergisorribas
+Host pro-uk1-bls7
+   HostName 10.101.192.207
+   User CORP\admin_sergisorribas
+Host pro-uk1-bls8
+   HostName 10.101.192.208
+   User CORP\admin_sergisorribas
+Host pro-uk1-mapstore
+   HostName 10.101.193.31
+   User CORP\admin_sergisorribas
+Host centos
+   HostName 10.206.100.115
+   User vagrant
+   IdentityFile ~/.ssh/vagrant.id_rsa
+#Host centos
+#  HostName 10.206.100.102
+#  User vagrant
+#  UserKnownHostsFile /dev/null
+#  StrictHostKeyChecking no
+#  PasswordAuthentication no
+#  IdentityFile ~/.ssh/vagrant.id_rsa
+#  IdentitiesOnly yes
+#  LogLevel FATAL
+
+
+Host ubuntu
+  HostName 10.206.100.127
+  User vagrant
+  UserKnownHostsFile /dev/null
+  StrictHostKeyChecking no
+  PasswordAuthentication no
+  IdentityFile ~/.ssh/ubuntu.id_rsa
+  IdentitiesOnly yes
+  LogLevel FATAL
+

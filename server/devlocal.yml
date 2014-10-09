@@ -4,6 +4,7 @@
 
 - name: setup a local dev server
   hosts: devlocal
-  remote_user: "{{ skyscanner_user }}"
+#  remote_user: "{{ skyscanner_user }}"
+  sudo: yes
   roles:
     - developer

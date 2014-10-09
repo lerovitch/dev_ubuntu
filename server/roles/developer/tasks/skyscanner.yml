@@ -1,0 +1,15 @@
+---
+
+- name: copying files to ssh
+  copy: src={{ item }} dest=/home/{{ user }}/.ssh/
+  with_items:
+    - config
+    - id_rsa
+    - id_rsa.pub
+    - known_hosts
+    - ubuntu.id_rsa
+    - vagrant.id_rsa
+
+- name: copying files to etc
+  sudo: yes
+  copy: src=hosts dest=/etc

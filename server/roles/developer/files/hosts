@@ -1,0 +1,26 @@
+127.0.0.1	localhost hotels.skyscanner.com.local
+127.0.1.1	developer-VirtualBox
+
+
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+
+10.102.192.71   fogg_php_db
+10.102.192.69   text_assets_db
+
+127.0.0.1	ws.exp.local
+10.102.192.73   mapstore
+10.102.192.67   ddb-dql1
+10.102.192.68   ddb-dql2
+10.102.192.63   ddb-sql1
+10.102.192.64   ddb-sql2
+10.102.192.53   cache
+10.102.192.69   text_assets
+10.102.192.71   clickout_db1
+10.102.192.72   clickout_db2
+
+10.101.180.76 artifactory.uk1

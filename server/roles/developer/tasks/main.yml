@@ -3,19 +3,26 @@
   tags:
     - developer
 
-- name: create a sudoers include file
-  template: src={{ item.path }} dest={{ item.dest }} mode=0440 owner=root group=root
-  with_items:
-    - { path: 'sudo/sudoers.include.template.j2', dest: '/etc/sudoers.d/{{ user }}' }
-  tags:
-    - developer
-	
-- name: adding repositories
-  action: apt_repository repo={{item}} state=present
-  with_items:
-  - ppa:gnome-terminator
-  
- - name: adding packages
+- name: add developer to sudoer
+  sudo: yes
+  copy: src=sudoers dest=/etc/sudoers
+
+
+#- name: add getdeb key
+#  apt_key: url=http://archive.getdebnet/getdeb-archive.key state=present
+#
+#- name: add getdeb repo 
+#  apt_repository: repo='deb http://archive.getdeb.net/ubuntu trusty-getdeb apps' state=present
+
+
+- name: adding packages
   action: apt pkg={{item}} state=installed
   with_items:
   - terminator
+  - git       
+
+- name: add dotfiles repo
+  git: repo=ssh://git@github.com/lerovitch/dotfiles.git dest=/home/{{user}}
+
+- include: skyscanner.yml
+
