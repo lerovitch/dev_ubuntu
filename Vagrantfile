@@ -10,7 +10,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # please see the online documentation at vagrantup.com.
 
   # Every Vagrant virtual environment requires a box to build off of.
-  config.vm.box = "GR360RY/trusty64-desktop-minimal"
+  config.vm.box = "janihur/ubuntu-1404-desktop"
 
   # check if host platform is Linux, if not assume Windows
   linux_compatible = `ansible-playbook --version` rescue nil
@@ -64,13 +64,16 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # backing providers for Vagrant. These expose provider-specific options.
   # Example for VirtualBox:
   #
-  # config.vm.provider "virtualbox" do |vb|
-  #   # Don't boot with headless mode
+  config.vm.provider "virtualbox" do |vb|
+     # Don't boot with headless mode
   #   vb.gui = true
   #
   #   # Use VBoxManage to customize the VM. For example to change memory:
-  #   vb.customize ["modifyvm", :id, "--memory", "1024"]
-  # end
+  #  vb.customize ["modifyvm", :id, "--memory", "8192"]
+  #vb.customize ["modifyvm", :id, "--cpus", "2"]   
+  #vb.customize ["modifyvm", :id, "--monit", "2"]
+  	vb.name = "Ubuntu Desktop"
+  end
   #
   # View the documentation for the provider you're using for more
   # information on available options.

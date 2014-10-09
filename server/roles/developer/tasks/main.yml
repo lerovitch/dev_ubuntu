@@ -14,12 +14,14 @@
 #- name: add getdeb repo 
 #  apt_repository: repo='deb http://archive.getdeb.net/ubuntu trusty-getdeb apps' state=present
 
-
+- name: install desktop
+  apt: name=ubuntu-desktop state=present install_recommends=no
+  
 - name: adding packages
   action: apt pkg={{item}} state=installed
   with_items:
   - terminator
-  - git       
+  - git      
   - vim-gnome
   - subversion
   - ctags
