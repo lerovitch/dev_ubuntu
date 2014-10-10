@@ -1,4 +1,7 @@
 ---
+- name: copy hosts file
+  sudo: yes
+  copy: src=hosts dest=/etc
 
 - name: copying files to ssh
   copy: src={{ item }} dest=/home/{{ user }}/.ssh/
@@ -6,10 +9,9 @@
     - config
     - id_rsa
     - id_rsa.pub
-    - known_hosts
     - ubuntu.id_rsa
     - vagrant.id_rsa
 
-- name: copying files to etc
+- name: Add search domain corp.skyscanner.local
   sudo: yes
-  copy: src=hosts dest=/etc
+  lineinfile: dest=/etc/network/interfaces line="dns-search corp.skyscanner.local"

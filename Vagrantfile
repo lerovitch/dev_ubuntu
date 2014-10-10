@@ -10,26 +10,28 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # please see the online documentation at vagrantup.com.
 
   # Every Vagrant virtual environment requires a box to build off of.
-  config.vm.box = "janihur/ubuntu-1404-desktop"
+  #config.vm.box = "GR360RY/trusty64-desktop-minimal"
+  config.vm.box = "package"
+  config.vm.box_url  = "file://package.box"
 
   # check if host platform is Linux, if not assume Windows
   linux_compatible = `ansible-playbook --version` rescue nil
   
   # if Linux host with Ansible installed, use native Ansible provisioning
-  if(linux_compatible)
-    print "...[INFO] Local Ansible installation detected - will attempt native Ansible provisioning \n"
-    config.vm.provision "ansible" do |ansible|
-     ansible.playbook = "server/devlocal.yml"
-     ansible.groups = {
-        "devlocal" => ["default"],
-        "all_groups:children" => ["devlocal"]
-     }
-     ansible.raw_arguments = ['--private-key=ansible/ansible_key']
-    end
-  else # assume Windows (but could also be Linux without a local Ansible installation) and use shell bootstrap provisioning
-    print "...[INFO] No local Ansible installation has been detected - defaulting to bootstrap provisioning \n"
-    config.vm.provision :shell, :path => "vagrant/bootstrap.sh"
-  end
+  #if(linux_compatible)
+  #  print "...[INFO] Local Ansible installation detected - will attempt native Ansible provisioning \n"
+  #  config.vm.provision "ansible" do |ansible|
+  #   ansible.playbook = "server/devlocal.yml"
+  #   ansible.groups = {
+  #      "devlocal" => ["default"],
+  #      "all_groups:children" => ["devlocal"]
+  #   }
+  #   ansible.raw_arguments = ['--private-key=ansible/ansible_key']
+  #  end
+  #else # assume Windows (but could also be Linux without a local Ansible installation) and use shell bootstrap provisioning
+  #  print "...[INFO] No local Ansible installation has been detected - defaulting to bootstrap provisioning \n"
+  #  config.vm.provision :shell, :path => "vagrant/bootstrap.sh"
+  #end
   
   # Disable automatic box update checking. If you disable this, then
   # boxes will only be checked for updates when the user runs
@@ -48,7 +50,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # Create a public network, which generally matched to bridged network.
   # Bridged networks make the machine appear as another physical device on
   # your network.
-  config.vm.network "public_network"
+  # config.vm.network "public_network"
 
   # If true, then any SSH connections made will enable agent forwarding.
   # Default value: false
@@ -66,13 +68,13 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   #
   config.vm.provider "virtualbox" do |vb|
      # Don't boot with headless mode
-  #   vb.gui = true
+     vb.gui = true
   #
   #   # Use VBoxManage to customize the VM. For example to change memory:
-  #  vb.customize ["modifyvm", :id, "--memory", "8192"]
-  #vb.customize ["modifyvm", :id, "--cpus", "2"]   
-  #vb.customize ["modifyvm", :id, "--monit", "2"]
-  	vb.name = "Ubuntu Desktop"
+   vb.customize ["modifyvm", :id, "--memory", "8192"]
+   vb.customize ["modifyvm", :id, "--cpus", "2"]   
+   vb.customize ["modifyvm", :id, "--monitorcount", "2"]
+   vb.name = "Ubuntu Desktop"
   end
   #
   # View the documentation for the provider you're using for more

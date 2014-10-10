@@ -22,10 +22,12 @@
   with_items:
   - terminator
   - git      
+  - git-svn
   - vim-gnome
   - subversion
   - ctags
   - ack-grep
+  - nscd 
  
 
 - include: skyscanner.yml
