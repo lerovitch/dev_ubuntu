@@ -1,0 +1,6 @@
+auto lo
+iface lo inet loopback
+dns-search corp.skyscanner.local
+dns-nameservers 10.206.100.7 10.206.100.6
+  
+
