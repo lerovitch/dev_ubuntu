@@ -8,27 +8,63 @@
   copy: src=sudoers dest=/etc/sudoers
 
 
-#- name: add getdeb key
-#  apt_key: url=http://archive.getdebnet/getdeb-archive.key state=present
-#
-#- name: add getdeb repo 
-#  apt_repository: repo='deb http://archive.getdeb.net/ubuntu trusty-getdeb apps' state=present
+- name: add postgresql key
+  apt_key: url=https://www.postgresql.org/media/keys/ACCC4CF8.asc state=present
 
-#- name: install desktop
-#  apt: name=ubuntu-desktop state=present install_recommends=no
+- name: add postgresql repo 
+  apt_repository: repo='deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main' state=present
+
   
 - name: adding packages
   action: apt pkg={{item}} state=installed
   with_items:
   - terminator
+  - curl
   - git      
   - git-svn
-  - vim-gnome
+  - vim-gtk
   - subversion
   - ctags
   - ack-grep
-  - nscd 
- 
+  - default-jdk
+  - libreadline-dev
+  - libssl-dev
+  - zlib1g-dev
+  - sqlite3
+  - python-dev
+  - postgresql-8.4
+  - libpq-dev
+  
+- name: disable GSSAPIAuth
+  lineinfile: dest=/etc/sshd_config regexp=".*{{ item }}.*" state=absent
+  with_items:
+    - GSSAPIAuth
+	- GSSAPIDelegate
+  
+- name: disable GSSAPIAuth
+  lineinfile: dest=/etc/ssh_config regexp=".*{{ item }}.*" state=absent
+  with_items:
+    - GSSAPIAuth
+	- GSSAPIDelegate
+  
+- name: get pycharm
+  get_url: url=http://download.jetbrains.com/python/pycharm-professional-3.4.1.tar.gz dest=/home/{{ user }} mode=0440
+  
+- name: install pyenv
+  command: curl -L https://raw.githubusercontent.com/yyuu/pyenv-installer/master/bin/pyenv-installer | bash
 
+- name: cloning dotfiles repo
+  git: repo=git@github.com:lerovitch/dotfiles.git dest=/home/{{ user }}/git/dotfiles
+   
+- name: copying font file
+  copy: src=/home/{{ user }}/git/dotfiles/fonts/Monaco.otf dest=/home/{{ user }}/.local/share/fonts/Monaco.otf owner={{ user }} group={{ user }}
+  
+- name: update font cache
+  sudo: yes
+  command: fc-cache -f -v
+  
+- name: install ubuntu config (terminator)
+  command: make ubuntu-install chdir=/home/{{ user }}/git/dotfiles
+ 
 - include: skyscanner.yml
 

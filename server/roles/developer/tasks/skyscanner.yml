@@ -1,7 +1,7 @@
 ---
 
 - name: copying files to ssh
-  copy: src={{ item }} dest=/home/{{ user }}/.ssh/
+  copy: src={{ item }} dest=/home/{{ user }}/.ssh/ owner={{ user }} group={{ user }} mode=0644
   with_items:
     - config
     - id_rsa
@@ -20,3 +20,8 @@
 - name: copying interfaces
   sudo: yes
   copy: src=interfaces  dest=/etc/network
+
+- name: regenerate resolv.conf file
+  sudo: yes
+  command: resolvconf -u
+  
