@@ -1,17 +1,8 @@
 ---
 
-- name: copying files to ssh
-  copy: src={{ item }} dest=/home/{{ user }}/.ssh/ owner={{ user }} group={{ user }} mode=0644
-  with_items:
-    - config
-    - id_rsa
-    - id_rsa.pub
-    - known_hosts
-    - ubuntu.id_rsa
-    - vagrant.id_rsa
-
 - name: copying files to etc
   sudo: yes
+  tags: network
   copy: src={{ item }} dest=/etc
   with_items:
      - hosts
@@ -19,9 +10,10 @@
 
 - name: copying interfaces
   sudo: yes
+  tags: network
   copy: src=interfaces  dest=/etc/network
 
 - name: regenerate resolv.conf file
   sudo: yes
+  tags: network
   command: resolvconf -u
-  

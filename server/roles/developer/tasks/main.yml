@@ -34,37 +34,83 @@
   - python-dev
   - postgresql-8.4
   - libpq-dev
+  - python-pip
   
 - name: disable GSSAPIAuth
-  lineinfile: dest=/etc/sshd_config regexp=".*{{ item }}.*" state=absent
+  lineinfile: dest=/etc/ssh/sshd_config regexp=".*{{ item }}.*" state=absent
+  tags: ssh
   with_items:
     - GSSAPIAuth
-	- GSSAPIDelegate
+    - GSSAPIDelegate
   
 - name: disable GSSAPIAuth
-  lineinfile: dest=/etc/ssh_config regexp=".*{{ item }}.*" state=absent
+  lineinfile: dest=/etc/ssh/ssh_config regexp=".*{{ item }}.*" state=absent
+  tags: ssh
   with_items:
     - GSSAPIAuth
-	- GSSAPIDelegate
+    - GSSAPIDelegate
   
 - name: get pycharm
-  get_url: url=http://download.jetbrains.com/python/pycharm-professional-3.4.1.tar.gz dest=/home/{{ user }} mode=0440
+  get_url: url=http://download.jetbrains.com/python/pycharm-professional-3.4.1.tar.gz dest=/home/{{ user }}/pycharm-professional-3.4.1.tar.gz mode=0440 owner={{user}} group={{user}}
   
+- name: download pyenv
+  tags: pyenv
+  get_url: url=https://raw.githubusercontent.com/yyuu/pyenv-installer/master/bin/pyenv-installer dest=/tmp/pyenv-installer  owner={{user}} group={{user}}
+
 - name: install pyenv
-  command: curl -L https://raw.githubusercontent.com/yyuu/pyenv-installer/master/bin/pyenv-installer | bash
+  tags: pyenv
+  command: sh /tmp/pyenv-installer
+
+- name: copying files to ssh
+  copy: src={{ item }} dest=/home/{{ user }}/.ssh/ owner={{ user }} group={{ user }} mode=0644
+  with_items:
+    - config
+    - id_rsa.pub
+    - known_hosts
+
+- name: copying files to ssh
+  copy: src={{ item }} dest=/home/{{ user }}/.ssh/ owner={{ user }} group={{ user }} mode=0600
+  with_items:
+    - id_rsa
+    - ubuntu.id_rsa
+    - vagrant.id_rsa
 
 - name: cloning dotfiles repo
   git: repo=git@github.com:lerovitch/dotfiles.git dest=/home/{{ user }}/git/dotfiles
    
+- name: Assures /home/{{ user }}/.local/share/fonts dir exists
+  tags: ide
+  file: path=/home/{{ user }}/.local/share/fonts state=directory
+
 - name: copying font file
+  tags: ide
   copy: src=/home/{{ user }}/git/dotfiles/fonts/Monaco.otf dest=/home/{{ user }}/.local/share/fonts/Monaco.otf owner={{ user }} group={{ user }}
+
+- name: configuring terminator (creating dir)
+  tags: ide
+  file: path=/home/{{ user }}/.config/terminator state=directory
+
+- name: configuring terminator (symbolic link)
+  tags: ide
+  file: src=/home/{{ user }}/git/dotfiles/ubuntu/terminator/config dest=/home/{{ user }}/.config/terminator/config state=link
+          
+- name: configuring bash profile
+  tags: ide
+  file: src=/home/{{ user }}/git/dotfiles/bash/bash_profile dest=/home/{{ user }}/.bashrc state=link force=yes
+
   
 - name: update font cache
+  tags: ide
   sudo: yes
   command: fc-cache -f -v
   
-- name: install ubuntu config (terminator)
-  command: make ubuntu-install chdir=/home/{{ user }}/git/dotfiles
+
+
+
+
+
+
+
  
 - include: skyscanner.yml
 
