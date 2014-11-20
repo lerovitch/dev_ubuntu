@@ -35,6 +35,47 @@
   - postgresql-8.4
   - libpq-dev
   - python-pip
+  - libgeos-dev
+  - libxml2-dev
+  - liblzo2-dev
+  - libxslt-dev
+
+- name: adding packages
+  action: apt pkg={{item}} state=installed
+  with_items:
+  - xubuntu-desktop
+  - gksu
+  - leafpad 
+  - synaptic
+  - xubuntu-community-wallpapers
+
+- name: adding packages
+  action: apt pkg={{item}} state=absent
+  with_items:
+  - nautilus 
+  - gnome-power-manager
+  - gnome-screensaver 
+  - gnome-termina* 
+  - gnome-pane* 
+  - gnome-applet* 
+  - gnome-bluetooth 
+  - gnome-desktop* 
+  - gnome-sessio* 
+  - gnome-user* 
+  - gnome-shell-common 
+  - compiz 
+  - compiz* 
+  - unity 
+  - unity* 
+  - hud 
+  - zeitgeist 
+  - zeitgeist* 
+  - python-zeitgeist 
+  - libzeitgeist* 
+  - activity-log-manager-common 
+  - gnome-control-center 
+  - gnome-screenshot 
+  - overlay-scrollba* 
   
 - name: disable GSSAPIAuth
   lineinfile: dest=/etc/ssh/sshd_config regexp=".*{{ item }}.*" state=absent
@@ -75,9 +116,18 @@
     - ubuntu.id_rsa
     - vagrant.id_rsa
 
+- name: Assures /home/{{ user }}/git exits
+  tags: dotfiles
+  file: path=/home/{{ user }}/git state=directory
+
 - name: cloning dotfiles repo
-  git: repo=git@github.com:lerovitch/dotfiles.git dest=/home/{{ user }}/git/dotfiles
+  tags: dotfiles
+  git: repo=git@github.com:lerovitch/dotfiles.git dest=/home/{{ user }}/git/dotfiles accept_hostkey=yes key_file=/home/{{ user }}/.ssh/id_rsa
    
+- name: Assures /home/{{ user }}/git/dotfiles with  proper permissions
+  tags: dotfiles
+  file: path=/home/{{ user }}/git/dotfiles state=directory owner={{ user }} group={{ user }} recurse=yes
+
 - name: Assures /home/{{ user }}/.local/share/fonts dir exists
   tags: ide
   file: path=/home/{{ user }}/.local/share/fonts state=directory
@@ -113,4 +163,3 @@
 
  
 - include: skyscanner.yml
-
