@@ -1,5 +1,5 @@
 127.0.0.1	localhost hotels.skyscanner.com.local
-127.0.1.1	vagrant-VirtualBox
+127.0.1.1	ubuntu-desktop
 
 
 # The following lines are desirable for IPv6 capable hosts
