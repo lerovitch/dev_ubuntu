@@ -1,0 +1,50 @@
+- name: create pyenv nlp
+  sudo_user: {{ user }}
+  command: pyenv install 2.7.8
+
+- name: create pyenv nlp
+  sudo_user: {{ user }}
+  command: pyenv virtualenv 2.7.8 nlp
+
+
+###########################
+#  install python requirements
+##########################
+
+- name: copy requirements.txt
+  tags: requirements
+  copy: src=../files/requirements.txt dest=/tmp/requirements.txt
+
+- name: install requirements wheels from artifactory
+  sudo: true
+  pip:  requirements=requirements.txt executable=/home/developer/.pyenv/versions/nlp/bin/pip 
+  tags: requirements
+
+- name: clean requirements.txt
+  file: path=/tmp/requirements.txt state=absent
+  tags: requirements
+
+- name: copying postgresql file
+  sudo: yes
+  tags: posgresql
+  copy: src=../files/pg_hba.conf dest=/etc/postgresql/8.4/main/pg_hba.conf owner=postgres group=postgres
+
+- name: restarting postgresql service
+  service: name=postgresql state=restarted
+  tags: posgresql
+
+- name: copying dump files
+  copy: src=../files/{{ item }} dest=/tmp/{{ item }}
+  tags: posgresql
+  with_items: 
+    - nlp.dump
+    - nlp_cache.dump
+    - seo_v3.dump
+
+- name: creating databases
+  command: psql -U postgres -f /tmp/{{ item }}
+  tags: posgresql
+  with_items: 
+    - nlp.dump
+    - nlp_cache.dump
+    - seo_v3.dump

@@ -1,0 +1,166 @@
+--
+-- PostgreSQL database dump
+--
+
+SET statement_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = off;
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+SET escape_string_warning = off;
+
+--
+-- Name: nlp_cache; Type: DATABASE; Schema: -; Owner: postgres
+--
+
+CREATE DATABASE nlp_cache WITH TEMPLATE = template0 ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';
+
+
+ALTER DATABASE nlp_cache OWNER TO postgres;
+
+\connect nlp_cache
+
+SET statement_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = off;
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+SET escape_string_warning = off;
+
+SET search_path = public, pg_catalog;
+
+SET default_tablespace = '';
+
+SET default_with_oids = false;
+
+--
+-- Name: befogg_cache_manager_log; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE befogg_cache_manager_log (
+    id bigint NOT NULL,
+    query text NOT NULL,
+    message character varying(256) NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.befogg_cache_manager_log OWNER TO postgres;
+
+--
+-- Name: befogg_cache_manager_log_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE befogg_cache_manager_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.befogg_cache_manager_log_id_seq OWNER TO postgres;
+
+--
+-- Name: befogg_cache_manager_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE befogg_cache_manager_log_id_seq OWNED BY befogg_cache_manager_log.id;
+
+
+--
+-- Name: nlp_workarea_storage; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE nlp_workarea_storage (
+    pkid integer NOT NULL,
+    workarea_id character varying(256) NOT NULL,
+    natural_query character varying(1024) NOT NULL,
+    language character varying(5) NOT NULL,
+    date_in_query timestamp without time zone,
+    "offset" integer NOT NULL,
+    "limit" integer NOT NULL,
+    sort_column integer,
+    sort_order integer,
+    num_results integer,
+    total_results integer,
+    workarea_status character varying(50),
+    modification_date timestamp without time zone NOT NULL,
+    content bytea NOT NULL,
+    version character varying(5),
+    cache_level integer DEFAULT 0 NOT NULL,
+    site_id integer
+);
+
+
+ALTER TABLE public.nlp_workarea_storage OWNER TO postgres;
+
+--
+-- Name: queries_to_delete; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE queries_to_delete (
+    query character varying(512)
+);
+
+
+ALTER TABLE public.queries_to_delete OWNER TO postgres;
+
+--
+-- Name: sq_workarea; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE sq_workarea
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.sq_workarea OWNER TO postgres;
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY befogg_cache_manager_log ALTER COLUMN id SET DEFAULT nextval('befogg_cache_manager_log_id_seq'::regclass);
+
+
+--
+-- Name: nlp_workarea_storage_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY nlp_workarea_storage
+    ADD CONSTRAINT nlp_workarea_storage_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: nlp_workarea_storage_workarea_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY nlp_workarea_storage
+    ADD CONSTRAINT nlp_workarea_storage_workarea_id_key UNIQUE (workarea_id);
+
+
+--
+-- Name: idx_natural_query; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_natural_query ON nlp_workarea_storage USING btree (natural_query);
+
+
+--
+-- Name: public; Type: ACL; Schema: -; Owner: postgres
+--
+
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM postgres;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO PUBLIC;
+
+
+--
+-- PostgreSQL database dump complete
+--
+

@@ -1,0 +1,56 @@
+# requirements to use from batch TC building
+Twisted==13.1.0
+django==1.3.7
+ujson==1.33
+pycrypto==2.6.1
+pyasn1==0.1.7
+cython==0.21
+psycopg2==2.5.4
+iconv==1.0
+ply==3.4
+sqlalchemy==0.5.2
+python-cjson==1.1.0
+shapely
+jsonlib==1.6.1
+cgpolyencode==0.1.1
+numpy==1.9.1
+couchbase==1.2.3
+pyyaml
+lxml==2.3.2
+pytz==2014.07
+libxml2dom==0.5
+nosexcover==1.0.10
+pygresql
+pyopenssl==0.14
+supervisor==3.1.2
+http://antlr3.org/download/Python/antlr_python_runtime-3.1.3.tar.gz
+
+# memdebug and memprofiler requirements
+pillow==2.6.1
+cherrypy==3.6.0
+guppy==0.1.10
+
+
+#pyzmq
+http://artifactory.uk1:8081/artifactory/simple/infrastructure/hotels_backend/wheelhouse/third/pyzmq-2.1.10-cp27-none-linux_x86_64.whl
+txZMQ==0.3.1
+
+# cython extensions
+svn+http://svn.corp.skyscanner.local/svn/befogg/branches/VERSION_0.1/miscellaneous/iconv_exon/src
+svn+http://svn.corp.skyscanner.local/svn/befogg/branches/VERSION_0.1/lib/exon_lzo/src
+
+# tests
+mock==1.0.1
+python-subunit==0.0.18
+junitxml==0.7
+coverage
+requests
+jsonschema
+teamcity-messages
+nose
+pyyaml
+nose_parameterized
+
+
+#svn+http://svn.corp.skyscanner.local/svn/befogg/branches/VERSION_0.1/config
+#libxml2_python==2.7.6

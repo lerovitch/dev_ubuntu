@@ -1,0 +1,5250 @@
+--
+-- PostgreSQL database dump
+--
+
+SET statement_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = off;
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+SET escape_string_warning = off;
+
+--
+-- Name: nlp; Type: DATABASE; Schema: -; Owner: postgres
+--
+
+CREATE DATABASE nlp WITH TEMPLATE = template0 ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';
+
+
+ALTER DATABASE nlp OWNER TO postgres;
+
+\connect nlp
+
+SET statement_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = off;
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+SET escape_string_warning = off;
+
+--
+-- Name: plpgsql; Type: PROCEDURAL LANGUAGE; Schema: -; Owner: postgres
+--
+
+CREATE PROCEDURAL LANGUAGE plpgsql;
+
+
+ALTER PROCEDURAL LANGUAGE plpgsql OWNER TO postgres;
+
+SET search_path = public, pg_catalog;
+
+--
+-- Name: addauth(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION addauth(text) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $_$ 
+DECLARE
+	lockid alias for $1;
+	okay boolean;
+	myrec record;
+BEGIN
+	-- check to see if table exists
+	--  if not, CREATE TEMP TABLE mylock (transid xid, lockcode text)
+	okay := 'f';
+	FOR myrec IN SELECT * FROM pg_class WHERE relname = 'temp_lock_have_table' LOOP
+		okay := 't';
+	END LOOP; 
+	IF (okay <> 't') THEN 
+		CREATE TEMP TABLE temp_lock_have_table (transid xid, lockcode text);
+			-- this will only work from pgsql7.4 up
+			-- ON COMMIT DELETE ROWS;
+	END IF;
+
+	--  INSERT INTO mylock VALUES ( $1)
+--	EXECUTE 'INSERT INTO temp_lock_have_table VALUES ( '||
+--		quote_literal(getTransactionID()) || ',' ||
+--		quote_literal(lockid) ||')';
+
+	INSERT INTO temp_lock_have_table VALUES (getTransactionID(), lockid);
+
+	RETURN true::boolean;
+END;
+$_$;
+
+
+ALTER FUNCTION public.addauth(text) OWNER TO postgres;
+
+--
+-- Name: addgeometrycolumn(character varying, character varying, character varying, character varying, integer, character varying, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION addgeometrycolumn(character varying, character varying, character varying, character varying, integer, character varying, integer) RETURNS text
+    LANGUAGE plpgsql STRICT
+    AS $_$
+DECLARE
+	catalog_name alias for $1;
+	schema_name alias for $2;
+	table_name alias for $3;
+	column_name alias for $4;
+	new_srid alias for $5;
+	new_type alias for $6;
+	new_dim alias for $7;
+	rec RECORD;
+	sr varchar;
+	real_schema name;
+	sql text;
+
+BEGIN
+
+	-- Verify geometry type
+	IF ( NOT ( (new_type = 'GEOMETRY') OR
+			   (new_type = 'GEOMETRYCOLLECTION') OR
+			   (new_type = 'POINT') OR
+			   (new_type = 'MULTIPOINT') OR
+			   (new_type = 'POLYGON') OR
+			   (new_type = 'MULTIPOLYGON') OR
+			   (new_type = 'LINESTRING') OR
+			   (new_type = 'MULTILINESTRING') OR
+			   (new_type = 'GEOMETRYCOLLECTIONM') OR
+			   (new_type = 'POINTM') OR
+			   (new_type = 'MULTIPOINTM') OR
+			   (new_type = 'POLYGONM') OR
+			   (new_type = 'MULTIPOLYGONM') OR
+			   (new_type = 'LINESTRINGM') OR
+			   (new_type = 'MULTILINESTRINGM') OR
+			   (new_type = 'CIRCULARSTRING') OR
+			   (new_type = 'CIRCULARSTRINGM') OR
+			   (new_type = 'COMPOUNDCURVE') OR
+			   (new_type = 'COMPOUNDCURVEM') OR
+			   (new_type = 'CURVEPOLYGON') OR
+			   (new_type = 'CURVEPOLYGONM') OR
+			   (new_type = 'MULTICURVE') OR
+			   (new_type = 'MULTICURVEM') OR
+			   (new_type = 'MULTISURFACE') OR
+			   (new_type = 'MULTISURFACEM')) )
+	THEN
+		RAISE EXCEPTION 'Invalid type name - valid ones are:
+	POINT, MULTIPOINT,
+	LINESTRING, MULTILINESTRING,
+	POLYGON, MULTIPOLYGON,
+	CIRCULARSTRING, COMPOUNDCURVE, MULTICURVE,
+	CURVEPOLYGON, MULTISURFACE,
+	GEOMETRY, GEOMETRYCOLLECTION,
+	POINTM, MULTIPOINTM,
+	LINESTRINGM, MULTILINESTRINGM,
+	POLYGONM, MULTIPOLYGONM,
+	CIRCULARSTRINGM, COMPOUNDCURVEM, MULTICURVEM
+	CURVEPOLYGONM, MULTISURFACEM,
+	or GEOMETRYCOLLECTIONM';
+		RETURN 'fail';
+	END IF;
+
+
+	-- Verify dimension
+	IF ( (new_dim >4) OR (new_dim <0) ) THEN
+		RAISE EXCEPTION 'invalid dimension';
+		RETURN 'fail';
+	END IF;
+
+	IF ( (new_type LIKE '%M') AND (new_dim!=3) ) THEN
+		RAISE EXCEPTION 'TypeM needs 3 dimensions';
+		RETURN 'fail';
+	END IF;
+
+
+	-- Verify SRID
+	IF ( new_srid != -1 ) THEN
+		SELECT SRID INTO sr FROM spatial_ref_sys WHERE SRID = new_srid;
+		IF NOT FOUND THEN
+			RAISE EXCEPTION 'AddGeometryColumns() - invalid SRID';
+			RETURN 'fail';
+		END IF;
+	END IF;
+
+
+	-- Verify schema
+	IF ( schema_name IS NOT NULL AND schema_name != '' ) THEN
+		sql := 'SELECT nspname FROM pg_namespace ' ||
+			'WHERE text(nspname) = ' || quote_literal(schema_name) ||
+			'LIMIT 1';
+		RAISE DEBUG '%', sql;
+		EXECUTE sql INTO real_schema;
+
+		IF ( real_schema IS NULL ) THEN
+			RAISE EXCEPTION 'Schema % is not a valid schemaname', quote_literal(schema_name);
+			RETURN 'fail';
+		END IF;
+	END IF;
+
+	IF ( real_schema IS NULL ) THEN
+		RAISE DEBUG 'Detecting schema';
+		sql := 'SELECT n.nspname AS schemaname ' ||
+			'FROM pg_catalog.pg_class c ' ||
+			  'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace ' ||
+			'WHERE c.relkind = ' || quote_literal('r') ||
+			' AND n.nspname NOT IN (' || quote_literal('pg_catalog') || ', ' || quote_literal('pg_toast') || ')' ||
+			' AND pg_catalog.pg_table_is_visible(c.oid)' ||
+			' AND c.relname = ' || quote_literal(table_name);
+		RAISE DEBUG '%', sql;
+		EXECUTE sql INTO real_schema;
+
+		IF ( real_schema IS NULL ) THEN
+			RAISE EXCEPTION 'Table % does not occur in the search_path', quote_literal(table_name);
+			RETURN 'fail';
+		END IF;
+	END IF;
+
+
+	-- Add geometry column to table
+	sql := 'ALTER TABLE ' ||
+		quote_ident(real_schema) || '.' || quote_ident(table_name)
+		|| ' ADD COLUMN ' || quote_ident(column_name) ||
+		' geometry ';
+	RAISE DEBUG '%', sql;
+	EXECUTE sql;
+
+
+	-- Delete stale record in geometry_columns (if any)
+	sql := 'DELETE FROM geometry_columns WHERE
+		f_table_catalog = ' || quote_literal('') ||
+		' AND f_table_schema = ' ||
+		quote_literal(real_schema) ||
+		' AND f_table_name = ' || quote_literal(table_name) ||
+		' AND f_geometry_column = ' || quote_literal(column_name);
+	RAISE DEBUG '%', sql;
+	EXECUTE sql;
+
+
+	-- Add record in geometry_columns
+	sql := 'INSERT INTO geometry_columns (f_table_catalog,f_table_schema,f_table_name,' ||
+										  'f_geometry_column,coord_dimension,srid,type)' ||
+		' VALUES (' ||
+		quote_literal('') || ',' ||
+		quote_literal(real_schema) || ',' ||
+		quote_literal(table_name) || ',' ||
+		quote_literal(column_name) || ',' ||
+		new_dim::text || ',' ||
+		new_srid::text || ',' ||
+		quote_literal(new_type) || ')';
+	RAISE DEBUG '%', sql;
+	EXECUTE sql;
+
+
+	-- Add table CHECKs
+	sql := 'ALTER TABLE ' ||
+		quote_ident(real_schema) || '.' || quote_ident(table_name)
+		|| ' ADD CONSTRAINT '
+		|| quote_ident('enforce_srid_' || column_name)
+		|| ' CHECK (ST_SRID(' || quote_ident(column_name) ||
+		') = ' || new_srid::text || ')' ;
+	RAISE DEBUG '%', sql;
+	EXECUTE sql;
+
+	sql := 'ALTER TABLE ' ||
+		quote_ident(real_schema) || '.' || quote_ident(table_name)
+		|| ' ADD CONSTRAINT '
+		|| quote_ident('enforce_dims_' || column_name)
+		|| ' CHECK (ST_NDims(' || quote_ident(column_name) ||
+		') = ' || new_dim::text || ')' ;
+	RAISE DEBUG '%', sql;
+	EXECUTE sql;
+
+	IF ( NOT (new_type = 'GEOMETRY')) THEN
+		sql := 'ALTER TABLE ' ||
+			quote_ident(real_schema) || '.' || quote_ident(table_name) || ' ADD CONSTRAINT ' ||
+			quote_ident('enforce_geotype_' || column_name) ||
+			' CHECK (GeometryType(' ||
+			quote_ident(column_name) || ')=' ||
+			quote_literal(new_type) || ' OR (' ||
+			quote_ident(column_name) || ') is null)';
+		RAISE DEBUG '%', sql;
+		EXECUTE sql;
+	END IF;
+
+	RETURN
+		real_schema || '.' ||
+		table_name || '.' || column_name ||
+		' SRID:' || new_srid::text ||
+		' TYPE:' || new_type ||
+		' DIMS:' || new_dim::text || ' ';
+END;
+$_$;
+
+
+ALTER FUNCTION public.addgeometrycolumn(character varying, character varying, character varying, character varying, integer, character varying, integer) OWNER TO postgres;
+
+--
+-- Name: addgeometrycolumn(character varying, character varying, character varying, integer, character varying, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION addgeometrycolumn(character varying, character varying, character varying, integer, character varying, integer) RETURNS text
+    LANGUAGE plpgsql STABLE STRICT
+    AS $_$
+DECLARE
+	ret  text;
+BEGIN
+	SELECT AddGeometryColumn('',$1,$2,$3,$4,$5,$6) into ret;
+	RETURN ret;
+END;
+$_$;
+
+
+ALTER FUNCTION public.addgeometrycolumn(character varying, character varying, character varying, integer, character varying, integer) OWNER TO postgres;
+
+--
+-- Name: addgeometrycolumn(character varying, character varying, integer, character varying, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION addgeometrycolumn(character varying, character varying, integer, character varying, integer) RETURNS text
+    LANGUAGE plpgsql STRICT
+    AS $_$
+DECLARE
+	ret  text;
+BEGIN
+	SELECT AddGeometryColumn('','',$1,$2,$3,$4,$5) into ret;
+	RETURN ret;
+END;
+$_$;
+
+
+ALTER FUNCTION public.addgeometrycolumn(character varying, character varying, integer, character varying, integer) OWNER TO postgres;
+
+--
+-- Name: array_to_rows(anyarray); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION array_to_rows(myarray anyarray) RETURNS SETOF anyelement
+    LANGUAGE plpgsql
+    AS $$
+  BEGIN
+    FOR j IN 1..ARRAY_UPPER(myarray,1) LOOP
+      RETURN NEXT myarray[j];
+    END LOOP;
+    RETURN;
+  END;
+$$;
+
+
+ALTER FUNCTION public.array_to_rows(myarray anyarray) OWNER TO postgres;
+
+--
+-- Name: checkauth(text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION checkauth(text, text, text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$ 
+DECLARE
+	schema text;
+BEGIN
+	IF NOT LongTransactionsEnabled() THEN
+		RAISE EXCEPTION 'Long transaction support disabled, use EnableLongTransaction() to enable.';
+	END IF;
+
+	if ( $1 != '' ) THEN
+		schema = $1;
+	ELSE
+		SELECT current_schema() into schema;
+	END IF;
+
+	-- TODO: check for an already existing trigger ?
+
+	EXECUTE 'CREATE TRIGGER check_auth BEFORE UPDATE OR DELETE ON ' 
+		|| quote_ident(schema) || '.' || quote_ident($2)
+		||' FOR EACH ROW EXECUTE PROCEDURE CheckAuthTrigger('
+		|| quote_literal($3) || ')';
+
+	RETURN 0;
+END;
+$_$;
+
+
+ALTER FUNCTION public.checkauth(text, text, text) OWNER TO postgres;
+
+--
+-- Name: checkauth(text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION checkauth(text, text) RETURNS integer
+    LANGUAGE sql
+    AS $_$ SELECT CheckAuth('', $1, $2) $_$;
+
+
+ALTER FUNCTION public.checkauth(text, text) OWNER TO postgres;
+
+--
+-- Name: disablelongtransactions(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION disablelongtransactions() RETURNS text
+    LANGUAGE plpgsql
+    AS $$ 
+DECLARE
+	rec RECORD;
+
+BEGIN
+
+	--
+	-- Drop all triggers applied by CheckAuth()
+	--
+	FOR rec IN
+		SELECT c.relname, t.tgname, t.tgargs FROM pg_trigger t, pg_class c, pg_proc p
+		WHERE p.proname = 'checkauthtrigger' and t.tgfoid = p.oid and t.tgrelid = c.oid
+	LOOP
+		EXECUTE 'DROP TRIGGER ' || quote_ident(rec.tgname) ||
+			' ON ' || quote_ident(rec.relname);
+	END LOOP;
+
+	--
+	-- Drop the authorization_table table
+	--
+	FOR rec IN SELECT * FROM pg_class WHERE relname = 'authorization_table' LOOP
+		DROP TABLE authorization_table;
+	END LOOP;
+
+	--
+	-- Drop the authorized_tables view
+	--
+	FOR rec IN SELECT * FROM pg_class WHERE relname = 'authorized_tables' LOOP
+		DROP VIEW authorized_tables;
+	END LOOP;
+
+	RETURN 'Long transactions support disabled';
+END;
+$$;
+
+
+ALTER FUNCTION public.disablelongtransactions() OWNER TO postgres;
+
+--
+-- Name: dropgeometrycolumn(character varying, character varying, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION dropgeometrycolumn(character varying, character varying, character varying, character varying) RETURNS text
+    LANGUAGE plpgsql STRICT
+    AS $_$
+DECLARE
+	catalog_name alias for $1;
+	schema_name alias for $2;
+	table_name alias for $3;
+	column_name alias for $4;
+	myrec RECORD;
+	okay boolean;
+	real_schema name;
+
+BEGIN
+
+
+	-- Find, check or fix schema_name
+	IF ( schema_name != '' ) THEN
+		okay = 'f';
+
+		FOR myrec IN SELECT nspname FROM pg_namespace WHERE text(nspname) = schema_name LOOP
+			okay := 't';
+		END LOOP;
+
+		IF ( okay <> 't' ) THEN
+			RAISE NOTICE 'Invalid schema name - using current_schema()';
+			SELECT current_schema() into real_schema;
+		ELSE
+			real_schema = schema_name;
+		END IF;
+	ELSE
+		SELECT current_schema() into real_schema;
+	END IF;
+
+	-- Find out if the column is in the geometry_columns table
+	okay = 'f';
+	FOR myrec IN SELECT * from geometry_columns where f_table_schema = text(real_schema) and f_table_name = table_name and f_geometry_column = column_name LOOP
+		okay := 't';
+	END LOOP;
+	IF (okay <> 't') THEN
+		RAISE EXCEPTION 'column not found in geometry_columns table';
+		RETURN 'f';
+	END IF;
+
+	-- Remove ref from geometry_columns table
+	EXECUTE 'delete from geometry_columns where f_table_schema = ' ||
+		quote_literal(real_schema) || ' and f_table_name = ' ||
+		quote_literal(table_name)  || ' and f_geometry_column = ' ||
+		quote_literal(column_name);
+
+	-- Remove table column
+	EXECUTE 'ALTER TABLE ' || quote_ident(real_schema) || '.' ||
+		quote_ident(table_name) || ' DROP COLUMN ' ||
+		quote_ident(column_name);
+
+	RETURN real_schema || '.' || table_name || '.' || column_name ||' effectively removed.';
+
+END;
+$_$;
+
+
+ALTER FUNCTION public.dropgeometrycolumn(character varying, character varying, character varying, character varying) OWNER TO postgres;
+
+--
+-- Name: dropgeometrycolumn(character varying, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION dropgeometrycolumn(character varying, character varying, character varying) RETURNS text
+    LANGUAGE plpgsql STRICT
+    AS $_$
+DECLARE
+	ret text;
+BEGIN
+	SELECT DropGeometryColumn('',$1,$2,$3) into ret;
+	RETURN ret;
+END;
+$_$;
+
+
+ALTER FUNCTION public.dropgeometrycolumn(character varying, character varying, character varying) OWNER TO postgres;
+
+--
+-- Name: dropgeometrycolumn(character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION dropgeometrycolumn(character varying, character varying) RETURNS text
+    LANGUAGE plpgsql STRICT
+    AS $_$
+DECLARE
+	ret text;
+BEGIN
+	SELECT DropGeometryColumn('','',$1,$2) into ret;
+	RETURN ret;
+END;
+$_$;
+
+
+ALTER FUNCTION public.dropgeometrycolumn(character varying, character varying) OWNER TO postgres;
+
+--
+-- Name: dropgeometrytable(character varying, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION dropgeometrytable(character varying, character varying, character varying) RETURNS text
+    LANGUAGE plpgsql STRICT
+    AS $_$
+DECLARE
+	catalog_name alias for $1;
+	schema_name alias for $2;
+	table_name alias for $3;
+	real_schema name;
+
+BEGIN
+
+	IF ( schema_name = '' ) THEN
+		SELECT current_schema() into real_schema;
+	ELSE
+		real_schema = schema_name;
+	END IF;
+
+	-- Remove refs from geometry_columns table
+	EXECUTE 'DELETE FROM geometry_columns WHERE ' ||
+		'f_table_schema = ' || quote_literal(real_schema) ||
+		' AND ' ||
+		' f_table_name = ' || quote_literal(table_name);
+
+	-- Remove table
+	EXECUTE 'DROP TABLE '
+		|| quote_ident(real_schema) || '.' ||
+		quote_ident(table_name);
+
+	RETURN
+		real_schema || '.' ||
+		table_name ||' dropped.';
+
+END;
+$_$;
+
+
+ALTER FUNCTION public.dropgeometrytable(character varying, character varying, character varying) OWNER TO postgres;
+
+--
+-- Name: dropgeometrytable(character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION dropgeometrytable(character varying, character varying) RETURNS text
+    LANGUAGE sql STRICT
+    AS $_$ SELECT DropGeometryTable('',$1,$2) $_$;
+
+
+ALTER FUNCTION public.dropgeometrytable(character varying, character varying) OWNER TO postgres;
+
+--
+-- Name: dropgeometrytable(character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION dropgeometrytable(character varying) RETURNS text
+    LANGUAGE sql STRICT
+    AS $_$ SELECT DropGeometryTable('','',$1) $_$;
+
+
+ALTER FUNCTION public.dropgeometrytable(character varying) OWNER TO postgres;
+
+--
+-- Name: enablelongtransactions(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION enablelongtransactions() RETURNS text
+    LANGUAGE plpgsql
+    AS $$ 
+DECLARE
+	"query" text;
+	exists bool;
+	rec RECORD;
+
+BEGIN
+
+	exists = 'f';
+	FOR rec IN SELECT * FROM pg_class WHERE relname = 'authorization_table'
+	LOOP
+		exists = 't';
+	END LOOP;
+
+	IF NOT exists
+	THEN
+		"query" = 'CREATE TABLE authorization_table (
+			toid oid, -- table oid
+			rid text, -- row id
+			expires timestamp,
+			authid text
+		)';
+		EXECUTE "query";
+	END IF;
+
+	exists = 'f';
+	FOR rec IN SELECT * FROM pg_class WHERE relname = 'authorized_tables'
+	LOOP
+		exists = 't';
+	END LOOP;
+
+	IF NOT exists THEN
+		"query" = 'CREATE VIEW authorized_tables AS ' ||
+			'SELECT ' ||
+			'n.nspname as schema, ' ||
+			'c.relname as table, trim(' ||
+			quote_literal(chr(92) || '000') ||
+			' from t.tgargs) as id_column ' ||
+			'FROM pg_trigger t, pg_class c, pg_proc p ' ||
+			', pg_namespace n ' ||
+			'WHERE p.proname = ' || quote_literal('checkauthtrigger') ||
+			' AND c.relnamespace = n.oid' ||
+			' AND t.tgfoid = p.oid and t.tgrelid = c.oid';
+		EXECUTE "query";
+	END IF;
+
+	RETURN 'Long transactions support enabled';
+END;
+$$;
+
+
+ALTER FUNCTION public.enablelongtransactions() OWNER TO postgres;
+
+--
+-- Name: explode_array(anyarray); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION explode_array(in_array anyarray) RETURNS SETOF anyelement
+    LANGUAGE sql IMMUTABLE
+    AS $_$
+    select ($1)[s][0],($1)[s][1] from generate_series(1,array_upper($1, 1)) as s;
+$_$;
+
+
+ALTER FUNCTION public.explode_array(in_array anyarray) OWNER TO postgres;
+
+--
+-- Name: find_srid(character varying, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION find_srid(character varying, character varying, character varying) RETURNS integer
+    LANGUAGE plpgsql IMMUTABLE STRICT
+    AS $_$
+DECLARE
+	schem text;
+	tabl text;
+	sr int4;
+BEGIN
+	IF $1 IS NULL THEN
+	  RAISE EXCEPTION 'find_srid() - schema is NULL!';
+	END IF;
+	IF $2 IS NULL THEN
+	  RAISE EXCEPTION 'find_srid() - table name is NULL!';
+	END IF;
+	IF $3 IS NULL THEN
+	  RAISE EXCEPTION 'find_srid() - column name is NULL!';
+	END IF;
+	schem = $1;
+	tabl = $2;
+-- if the table contains a . and the schema is empty
+-- split the table into a schema and a table
+-- otherwise drop through to default behavior
+	IF ( schem = '' and tabl LIKE '%.%' ) THEN
+	 schem = substr(tabl,1,strpos(tabl,'.')-1);
+	 tabl = substr(tabl,length(schem)+2);
+	ELSE
+	 schem = schem || '%';
+	END IF;
+
+	select SRID into sr from geometry_columns where f_table_schema like schem and f_table_name = tabl and f_geometry_column = $3;
+	IF NOT FOUND THEN
+	   RAISE EXCEPTION 'find_srid() - couldnt find the corresponding SRID - is the geometry registered in the GEOMETRY_COLUMNS table?  Is there an uppercase/lowercase missmatch?';
+	END IF;
+	return sr;
+END;
+$_$;
+
+
+ALTER FUNCTION public.find_srid(character varying, character varying, character varying) OWNER TO postgres;
+
+--
+-- Name: fix_geometry_columns(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION fix_geometry_columns() RETURNS text
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+	mislinked record;
+	result text;
+	linked integer;
+	deleted integer;
+	foundschema integer;
+BEGIN
+
+	-- Since 7.3 schema support has been added.
+	-- Previous postgis versions used to put the database name in
+	-- the schema column. This needs to be fixed, so we try to
+	-- set the correct schema for each geometry_colums record
+	-- looking at table, column, type and srid.
+	UPDATE geometry_columns SET f_table_schema = n.nspname
+		FROM pg_namespace n, pg_class c, pg_attribute a,
+			pg_constraint sridcheck, pg_constraint typecheck
+			WHERE ( f_table_schema is NULL
+		OR f_table_schema = ''
+			OR f_table_schema NOT IN (
+					SELECT nspname::varchar
+					FROM pg_namespace nn, pg_class cc, pg_attribute aa
+					WHERE cc.relnamespace = nn.oid
+					AND cc.relname = f_table_name::name
+					AND aa.attrelid = cc.oid
+					AND aa.attname = f_geometry_column::name))
+			AND f_table_name::name = c.relname
+			AND c.oid = a.attrelid
+			AND c.relnamespace = n.oid
+			AND f_geometry_column::name = a.attname
+
+			AND sridcheck.conrelid = c.oid
+		AND sridcheck.consrc LIKE '(srid(% = %)'
+			AND sridcheck.consrc ~ textcat(' = ', srid::text)
+
+			AND typecheck.conrelid = c.oid
+		AND typecheck.consrc LIKE
+		'((geometrytype(%) = ''%''::text) OR (% IS NULL))'
+			AND typecheck.consrc ~ textcat(' = ''', type::text)
+
+			AND NOT EXISTS (
+					SELECT oid FROM geometry_columns gc
+					WHERE c.relname::varchar = gc.f_table_name
+					AND n.nspname::varchar = gc.f_table_schema
+					AND a.attname::varchar = gc.f_geometry_column
+			);
+
+	GET DIAGNOSTICS foundschema = ROW_COUNT;
+
+	-- no linkage to system table needed
+	return 'fixed:'||foundschema::text;
+
+END;
+$$;
+
+
+ALTER FUNCTION public.fix_geometry_columns() OWNER TO postgres;
+
+--
+-- Name: get_proj4_from_srid(integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION get_proj4_from_srid(integer) RETURNS text
+    LANGUAGE plpgsql IMMUTABLE STRICT
+    AS $_$
+BEGIN
+	RETURN proj4text::text FROM spatial_ref_sys WHERE srid= $1;
+END;
+$_$;
+
+
+ALTER FUNCTION public.get_proj4_from_srid(integer) OWNER TO postgres;
+
+--
+-- Name: lockrow(text, text, text, text, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION lockrow(text, text, text, text, timestamp without time zone) RETURNS integer
+    LANGUAGE plpgsql STRICT
+    AS $_$ 
+DECLARE
+	myschema alias for $1;
+	mytable alias for $2;
+	myrid   alias for $3;
+	authid alias for $4;
+	expires alias for $5;
+	ret int;
+	mytoid oid;
+	myrec RECORD;
+	
+BEGIN
+
+	IF NOT LongTransactionsEnabled() THEN
+		RAISE EXCEPTION 'Long transaction support disabled, use EnableLongTransaction() to enable.';
+	END IF;
+
+	EXECUTE 'DELETE FROM authorization_table WHERE expires < now()'; 
+
+	SELECT c.oid INTO mytoid FROM pg_class c, pg_namespace n
+		WHERE c.relname = mytable
+		AND c.relnamespace = n.oid
+		AND n.nspname = myschema;
+
+	-- RAISE NOTICE 'toid: %', mytoid;
+
+	FOR myrec IN SELECT * FROM authorization_table WHERE 
+		toid = mytoid AND rid = myrid
+	LOOP
+		IF myrec.authid != authid THEN
+			RETURN 0;
+		ELSE
+			RETURN 1;
+		END IF;
+	END LOOP;
+
+	EXECUTE 'INSERT INTO authorization_table VALUES ('||
+		quote_literal(mytoid::text)||','||quote_literal(myrid)||
+		','||quote_literal(expires::text)||
+		','||quote_literal(authid) ||')';
+
+	GET DIAGNOSTICS ret = ROW_COUNT;
+
+	RETURN ret;
+END;
+$_$;
+
+
+ALTER FUNCTION public.lockrow(text, text, text, text, timestamp without time zone) OWNER TO postgres;
+
+--
+-- Name: lockrow(text, text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION lockrow(text, text, text, text) RETURNS integer
+    LANGUAGE sql STRICT
+    AS $_$ SELECT LockRow($1, $2, $3, $4, now()::timestamp+'1:00'); $_$;
+
+
+ALTER FUNCTION public.lockrow(text, text, text, text) OWNER TO postgres;
+
+--
+-- Name: lockrow(text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION lockrow(text, text, text) RETURNS integer
+    LANGUAGE sql STRICT
+    AS $_$ SELECT LockRow(current_schema(), $1, $2, $3, now()::timestamp+'1:00'); $_$;
+
+
+ALTER FUNCTION public.lockrow(text, text, text) OWNER TO postgres;
+
+--
+-- Name: lockrow(text, text, text, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION lockrow(text, text, text, timestamp without time zone) RETURNS integer
+    LANGUAGE sql STRICT
+    AS $_$ SELECT LockRow(current_schema(), $1, $2, $3, $4); $_$;
+
+
+ALTER FUNCTION public.lockrow(text, text, text, timestamp without time zone) OWNER TO postgres;
+
+--
+-- Name: longtransactionsenabled(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION longtransactionsenabled() RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$ 
+DECLARE
+	rec RECORD;
+BEGIN
+	FOR rec IN SELECT oid FROM pg_class WHERE relname = 'authorized_tables'
+	LOOP
+		return 't';
+	END LOOP;
+	return 'f';
+END;
+$$;
+
+
+ALTER FUNCTION public.longtransactionsenabled() OWNER TO postgres;
+
+--
+-- Name: populate_geometry_columns(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION populate_geometry_columns() RETURNS text
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+	inserted    integer;
+	oldcount    integer;
+	probed      integer;
+	stale       integer;
+	gcs         RECORD;
+	gc          RECORD;
+	gsrid       integer;
+	gndims      integer;
+	gtype       text;
+	query       text;
+	gc_is_valid boolean;
+
+BEGIN
+	SELECT count(*) INTO oldcount FROM geometry_columns;
+	inserted := 0;
+
+	EXECUTE 'TRUNCATE geometry_columns';
+
+	-- Count the number of geometry columns in all tables and views
+	SELECT count(DISTINCT c.oid) INTO probed
+	FROM pg_class c,
+		 pg_attribute a,
+		 pg_type t,
+		 pg_namespace n
+	WHERE (c.relkind = 'r' OR c.relkind = 'v')
+	AND t.typname = 'geometry'
+	AND a.attisdropped = false
+	AND a.atttypid = t.oid
+	AND a.attrelid = c.oid
+	AND c.relnamespace = n.oid
+	AND n.nspname NOT ILIKE 'pg_temp%';
+
+	-- Iterate through all non-dropped geometry columns
+	RAISE DEBUG 'Processing Tables.....';
+
+	FOR gcs IN
+	SELECT DISTINCT ON (c.oid) c.oid, n.nspname, c.relname
+		FROM pg_class c,
+			 pg_attribute a,
+			 pg_type t,
+			 pg_namespace n
+		WHERE c.relkind = 'r'
+		AND t.typname = 'geometry'
+		AND a.attisdropped = false
+		AND a.atttypid = t.oid
+		AND a.attrelid = c.oid
+		AND c.relnamespace = n.oid
+		AND n.nspname NOT ILIKE 'pg_temp%'
+	LOOP
+
+	inserted := inserted + populate_geometry_columns(gcs.oid);
+	END LOOP;
+
+	-- Add views to geometry columns table
+	RAISE DEBUG 'Processing Views.....';
+	FOR gcs IN
+	SELECT DISTINCT ON (c.oid) c.oid, n.nspname, c.relname
+		FROM pg_class c,
+			 pg_attribute a,
+			 pg_type t,
+			 pg_namespace n
+		WHERE c.relkind = 'v'
+		AND t.typname = 'geometry'
+		AND a.attisdropped = false
+		AND a.atttypid = t.oid
+		AND a.attrelid = c.oid
+		AND c.relnamespace = n.oid
+	LOOP
+
+	inserted := inserted + populate_geometry_columns(gcs.oid);
+	END LOOP;
+
+	IF oldcount > inserted THEN
+	stale = oldcount-inserted;
+	ELSE
+	stale = 0;
+	END IF;
+
+	RETURN 'probed:' ||probed|| ' inserted:'||inserted|| ' conflicts:'||probed-inserted|| ' deleted:'||stale;
+END
+
+$$;
+
+
+ALTER FUNCTION public.populate_geometry_columns() OWNER TO postgres;
+
+--
+-- Name: populate_geometry_columns(oid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION populate_geometry_columns(tbl_oid oid) RETURNS integer
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+	gcs         RECORD;
+	gc          RECORD;
+	gsrid       integer;
+	gndims      integer;
+	gtype       text;
+	query       text;
+	gc_is_valid boolean;
+	inserted    integer;
+
+BEGIN
+	inserted := 0;
+
+	-- Iterate through all geometry columns in this table
+	FOR gcs IN
+	SELECT n.nspname, c.relname, a.attname
+		FROM pg_class c,
+			 pg_attribute a,
+			 pg_type t,
+			 pg_namespace n
+		WHERE c.relkind = 'r'
+		AND t.typname = 'geometry'
+		AND a.attisdropped = false
+		AND a.atttypid = t.oid
+		AND a.attrelid = c.oid
+		AND c.relnamespace = n.oid
+		AND n.nspname NOT ILIKE 'pg_temp%'
+		AND c.oid = tbl_oid
+	LOOP
+
+	RAISE DEBUG 'Processing table %.%.%', gcs.nspname, gcs.relname, gcs.attname;
+
+	DELETE FROM geometry_columns
+	  WHERE f_table_schema = quote_ident(gcs.nspname)
+	  AND f_table_name = quote_ident(gcs.relname)
+	  AND f_geometry_column = quote_ident(gcs.attname);
+
+	gc_is_valid := true;
+
+	-- Try to find srid check from system tables (pg_constraint)
+	gsrid :=
+		(SELECT replace(replace(split_part(s.consrc, ' = ', 2), ')', ''), '(', '')
+		 FROM pg_class c, pg_namespace n, pg_attribute a, pg_constraint s
+		 WHERE n.nspname = gcs.nspname
+		 AND c.relname = gcs.relname
+		 AND a.attname = gcs.attname
+		 AND a.attrelid = c.oid
+		 AND s.connamespace = n.oid
+		 AND s.conrelid = c.oid
+		 AND a.attnum = ANY (s.conkey)
+		 AND s.consrc LIKE '%srid(% = %');
+	IF (gsrid IS NULL) THEN
+		-- Try to find srid from the geometry itself
+		EXECUTE 'SELECT srid(' || quote_ident(gcs.attname) || ')
+				 FROM ONLY ' || quote_ident(gcs.nspname) || '.' || quote_ident(gcs.relname) || '
+				 WHERE ' || quote_ident(gcs.attname) || ' IS NOT NULL LIMIT 1'
+			INTO gc;
+		gsrid := gc.srid;
+
+		-- Try to apply srid check to column
+		IF (gsrid IS NOT NULL) THEN
+			BEGIN
+				EXECUTE 'ALTER TABLE ONLY ' || quote_ident(gcs.nspname) || '.' || quote_ident(gcs.relname) || '
+						 ADD CONSTRAINT ' || quote_ident('enforce_srid_' || gcs.attname) || '
+						 CHECK (srid(' || quote_ident(gcs.attname) || ') = ' || gsrid || ')';
+			EXCEPTION
+				WHEN check_violation THEN
+					RAISE WARNING 'Not inserting ''%'' in ''%.%'' into geometry_columns: could not apply constraint CHECK (srid(%) = %)', quote_ident(gcs.attname), quote_ident(gcs.nspname), quote_ident(gcs.relname), quote_ident(gcs.attname), gsrid;
+					gc_is_valid := false;
+			END;
+		END IF;
+	END IF;
+
+	-- Try to find ndims check from system tables (pg_constraint)
+	gndims :=
+		(SELECT replace(split_part(s.consrc, ' = ', 2), ')', '')
+		 FROM pg_class c, pg_namespace n, pg_attribute a, pg_constraint s
+		 WHERE n.nspname = gcs.nspname
+		 AND c.relname = gcs.relname
+		 AND a.attname = gcs.attname
+		 AND a.attrelid = c.oid
+		 AND s.connamespace = n.oid
+		 AND s.conrelid = c.oid
+		 AND a.attnum = ANY (s.conkey)
+		 AND s.consrc LIKE '%ndims(% = %');
+	IF (gndims IS NULL) THEN
+		-- Try to find ndims from the geometry itself
+		EXECUTE 'SELECT ndims(' || quote_ident(gcs.attname) || ')
+				 FROM ONLY ' || quote_ident(gcs.nspname) || '.' || quote_ident(gcs.relname) || '
+				 WHERE ' || quote_ident(gcs.attname) || ' IS NOT NULL LIMIT 1'
+			INTO gc;
+		gndims := gc.ndims;
+
+		-- Try to apply ndims check to column
+		IF (gndims IS NOT NULL) THEN
+			BEGIN
+				EXECUTE 'ALTER TABLE ONLY ' || quote_ident(gcs.nspname) || '.' || quote_ident(gcs.relname) || '
+						 ADD CONSTRAINT ' || quote_ident('enforce_dims_' || gcs.attname) || '
+						 CHECK (ndims(' || quote_ident(gcs.attname) || ') = '||gndims||')';
+			EXCEPTION
+				WHEN check_violation THEN
+					RAISE WARNING 'Not inserting ''%'' in ''%.%'' into geometry_columns: could not apply constraint CHECK (ndims(%) = %)', quote_ident(gcs.attname), quote_ident(gcs.nspname), quote_ident(gcs.relname), quote_ident(gcs.attname), gndims;
+					gc_is_valid := false;
+			END;
+		END IF;
+	END IF;
+
+	-- Try to find geotype check from system tables (pg_constraint)
+	gtype :=
+		(SELECT replace(split_part(s.consrc, '''', 2), ')', '')
+		 FROM pg_class c, pg_namespace n, pg_attribute a, pg_constraint s
+		 WHERE n.nspname = gcs.nspname
+		 AND c.relname = gcs.relname
+		 AND a.attname = gcs.attname
+		 AND a.attrelid = c.oid
+		 AND s.connamespace = n.oid
+		 AND s.conrelid = c.oid
+		 AND a.attnum = ANY (s.conkey)
+		 AND s.consrc LIKE '%geometrytype(% = %');
+	IF (gtype IS NULL) THEN
+		-- Try to find geotype from the geometry itself
+		EXECUTE 'SELECT geometrytype(' || quote_ident(gcs.attname) || ')
+				 FROM ONLY ' || quote_ident(gcs.nspname) || '.' || quote_ident(gcs.relname) || '
+				 WHERE ' || quote_ident(gcs.attname) || ' IS NOT NULL LIMIT 1'
+			INTO gc;
+		gtype := gc.geometrytype;
+		--IF (gtype IS NULL) THEN
+		--    gtype := 'GEOMETRY';
+		--END IF;
+
+		-- Try to apply geometrytype check to column
+		IF (gtype IS NOT NULL) THEN
+			BEGIN
+				EXECUTE 'ALTER TABLE ONLY ' || quote_ident(gcs.nspname) || '.' || quote_ident(gcs.relname) || '
+				ADD CONSTRAINT ' || quote_ident('enforce_geotype_' || gcs.attname) || '
+				CHECK ((geometrytype(' || quote_ident(gcs.attname) || ') = ' || quote_literal(gtype) || ') OR (' || quote_ident(gcs.attname) || ' IS NULL))';
+			EXCEPTION
+				WHEN check_violation THEN
+					-- No geometry check can be applied. This column contains a number of geometry types.
+					RAISE WARNING 'Could not add geometry type check (%) to table column: %.%.%', gtype, quote_ident(gcs.nspname),quote_ident(gcs.relname),quote_ident(gcs.attname);
+			END;
+		END IF;
+	END IF;
+
+	IF (gsrid IS NULL) THEN
+		RAISE WARNING 'Not inserting ''%'' in ''%.%'' into geometry_columns: could not determine the srid', quote_ident(gcs.attname), quote_ident(gcs.nspname), quote_ident(gcs.relname);
+	ELSIF (gndims IS NULL) THEN
+		RAISE WARNING 'Not inserting ''%'' in ''%.%'' into geometry_columns: could not determine the number of dimensions', quote_ident(gcs.attname), quote_ident(gcs.nspname), quote_ident(gcs.relname);
+	ELSIF (gtype IS NULL) THEN
+		RAISE WARNING 'Not inserting ''%'' in ''%.%'' into geometry_columns: could not determine the geometry type', quote_ident(gcs.attname), quote_ident(gcs.nspname), quote_ident(gcs.relname);
+	ELSE
+		-- Only insert into geometry_columns if table constraints could be applied.
+		IF (gc_is_valid) THEN
+			INSERT INTO geometry_columns (f_table_catalog,f_table_schema, f_table_name, f_geometry_column, coord_dimension, srid, type)
+			VALUES ('', gcs.nspname, gcs.relname, gcs.attname, gndims, gsrid, gtype);
+			inserted := inserted + 1;
+		END IF;
+	END IF;
+	END LOOP;
+
+	-- Add views to geometry columns table
+	FOR gcs IN
+	SELECT n.nspname, c.relname, a.attname
+		FROM pg_class c,
+			 pg_attribute a,
+			 pg_type t,
+			 pg_namespace n
+		WHERE c.relkind = 'v'
+		AND t.typname = 'geometry'
+		AND a.attisdropped = false
+		AND a.atttypid = t.oid
+		AND a.attrelid = c.oid
+		AND c.relnamespace = n.oid
+		AND n.nspname NOT ILIKE 'pg_temp%'
+		AND c.oid = tbl_oid
+	LOOP
+		RAISE DEBUG 'Processing view %.%.%', gcs.nspname, gcs.relname, gcs.attname;
+
+		EXECUTE 'SELECT ndims(' || quote_ident(gcs.attname) || ')
+				 FROM ' || quote_ident(gcs.nspname) || '.' || quote_ident(gcs.relname) || '
+				 WHERE ' || quote_ident(gcs.attname) || ' IS NOT NULL LIMIT 1'
+			INTO gc;
+		gndims := gc.ndims;
+
+		EXECUTE 'SELECT srid(' || quote_ident(gcs.attname) || ')
+				 FROM ' || quote_ident(gcs.nspname) || '.' || quote_ident(gcs.relname) || '
+				 WHERE ' || quote_ident(gcs.attname) || ' IS NOT NULL LIMIT 1'
+			INTO gc;
+		gsrid := gc.srid;
+
+		EXECUTE 'SELECT geometrytype(' || quote_ident(gcs.attname) || ')
+				 FROM ' || quote_ident(gcs.nspname) || '.' || quote_ident(gcs.relname) || '
+				 WHERE ' || quote_ident(gcs.attname) || ' IS NOT NULL LIMIT 1'
+			INTO gc;
+		gtype := gc.geometrytype;
+
+		IF (gndims IS NULL) THEN
+			RAISE WARNING 'Not inserting ''%'' in ''%.%'' into geometry_columns: could not determine ndims', quote_ident(gcs.attname), quote_ident(gcs.nspname), quote_ident(gcs.relname);
+		ELSIF (gsrid IS NULL) THEN
+			RAISE WARNING 'Not inserting ''%'' in ''%.%'' into geometry_columns: could not determine srid', quote_ident(gcs.attname), quote_ident(gcs.nspname), quote_ident(gcs.relname);
+		ELSIF (gtype IS NULL) THEN
+			RAISE WARNING 'Not inserting ''%'' in ''%.%'' into geometry_columns: could not determine gtype', quote_ident(gcs.attname), quote_ident(gcs.nspname), quote_ident(gcs.relname);
+		ELSE
+			query := 'INSERT INTO geometry_columns (f_table_catalog,f_table_schema, f_table_name, f_geometry_column, coord_dimension, srid, type) ' ||
+					 'VALUES ('''', ' || quote_literal(gcs.nspname) || ',' || quote_literal(gcs.relname) || ',' || quote_literal(gcs.attname) || ',' || gndims || ',' || gsrid || ',' || quote_literal(gtype) || ')';
+			EXECUTE query;
+			inserted := inserted + 1;
+		END IF;
+	END LOOP;
+
+	RETURN inserted;
+END
+
+$$;
+
+
+ALTER FUNCTION public.populate_geometry_columns(tbl_oid oid) OWNER TO postgres;
+
+--
+-- Name: postgis_full_version(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION postgis_full_version() RETURNS text
+    LANGUAGE plpgsql IMMUTABLE
+    AS $$
+DECLARE
+	libver text;
+	projver text;
+	geosver text;
+	libxmlver text;
+	usestats bool;
+	dbproc text;
+	relproc text;
+	fullver text;
+BEGIN
+	SELECT postgis_lib_version() INTO libver;
+	SELECT postgis_proj_version() INTO projver;
+	SELECT postgis_geos_version() INTO geosver;
+	SELECT postgis_libxml_version() INTO libxmlver;
+	SELECT postgis_uses_stats() INTO usestats;
+	SELECT postgis_scripts_installed() INTO dbproc;
+	SELECT postgis_scripts_released() INTO relproc;
+
+	fullver = 'POSTGIS="' || libver || '"';
+
+	IF  geosver IS NOT NULL THEN
+		fullver = fullver || ' GEOS="' || geosver || '"';
+	END IF;
+
+	IF  projver IS NOT NULL THEN
+		fullver = fullver || ' PROJ="' || projver || '"';
+	END IF;
+
+	IF  libxmlver IS NOT NULL THEN
+		fullver = fullver || ' LIBXML="' || libxmlver || '"';
+	END IF;
+
+	IF usestats THEN
+		fullver = fullver || ' USE_STATS';
+	END IF;
+
+	-- fullver = fullver || ' DBPROC="' || dbproc || '"';
+	-- fullver = fullver || ' RELPROC="' || relproc || '"';
+
+	IF dbproc != relproc THEN
+		fullver = fullver || ' (procs from ' || dbproc || ' need upgrade)';
+	END IF;
+
+	RETURN fullver;
+END
+$$;
+
+
+ALTER FUNCTION public.postgis_full_version() OWNER TO postgres;
+
+--
+-- Name: postgis_scripts_build_date(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION postgis_scripts_build_date() RETURNS text
+    LANGUAGE sql IMMUTABLE
+    AS $$SELECT '2010-04-14 14:02:15'::text AS version$$;
+
+
+ALTER FUNCTION public.postgis_scripts_build_date() OWNER TO postgres;
+
+--
+-- Name: postgis_scripts_installed(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION postgis_scripts_installed() RETURNS text
+    LANGUAGE sql IMMUTABLE
+    AS $$SELECT '1.5 r5166'::text AS version$$;
+
+
+ALTER FUNCTION public.postgis_scripts_installed() OWNER TO postgres;
+
+--
+-- Name: probe_geometry_columns(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION probe_geometry_columns() RETURNS text
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+	inserted integer;
+	oldcount integer;
+	probed integer;
+	stale integer;
+BEGIN
+
+	SELECT count(*) INTO oldcount FROM geometry_columns;
+
+	SELECT count(*) INTO probed
+		FROM pg_class c, pg_attribute a, pg_type t,
+			pg_namespace n,
+			pg_constraint sridcheck, pg_constraint typecheck
+
+		WHERE t.typname = 'geometry'
+		AND a.atttypid = t.oid
+		AND a.attrelid = c.oid
+		AND c.relnamespace = n.oid
+		AND sridcheck.connamespace = n.oid
+		AND typecheck.connamespace = n.oid
+		AND sridcheck.conrelid = c.oid
+		AND sridcheck.consrc LIKE '(srid('||a.attname||') = %)'
+		AND typecheck.conrelid = c.oid
+		AND typecheck.consrc LIKE
+		'((geometrytype('||a.attname||') = ''%''::text) OR (% IS NULL))'
+		;
+
+	INSERT INTO geometry_columns SELECT
+		''::varchar as f_table_catalogue,
+		n.nspname::varchar as f_table_schema,
+		c.relname::varchar as f_table_name,
+		a.attname::varchar as f_geometry_column,
+		2 as coord_dimension,
+		trim(both  ' =)' from
+			replace(replace(split_part(
+				sridcheck.consrc, ' = ', 2), ')', ''), '(', ''))::integer AS srid,
+		trim(both ' =)''' from substr(typecheck.consrc,
+			strpos(typecheck.consrc, '='),
+			strpos(typecheck.consrc, '::')-
+			strpos(typecheck.consrc, '=')
+			))::varchar as type
+		FROM pg_class c, pg_attribute a, pg_type t,
+			pg_namespace n,
+			pg_constraint sridcheck, pg_constraint typecheck
+		WHERE t.typname = 'geometry'
+		AND a.atttypid = t.oid
+		AND a.attrelid = c.oid
+		AND c.relnamespace = n.oid
+		AND sridcheck.connamespace = n.oid
+		AND typecheck.connamespace = n.oid
+		AND sridcheck.conrelid = c.oid
+		AND sridcheck.consrc LIKE '(st_srid('||a.attname||') = %)'
+		AND typecheck.conrelid = c.oid
+		AND typecheck.consrc LIKE
+		'((geometrytype('||a.attname||') = ''%''::text) OR (% IS NULL))'
+
+			AND NOT EXISTS (
+					SELECT oid FROM geometry_columns gc
+					WHERE c.relname::varchar = gc.f_table_name
+					AND n.nspname::varchar = gc.f_table_schema
+					AND a.attname::varchar = gc.f_geometry_column
+			);
+
+	GET DIAGNOSTICS inserted = ROW_COUNT;
+
+	IF oldcount > probed THEN
+		stale = oldcount-probed;
+	ELSE
+		stale = 0;
+	END IF;
+
+	RETURN 'probed:'||probed::text||
+		' inserted:'||inserted::text||
+		' conflicts:'||(probed-inserted)::text||
+		' stale:'||stale::text;
+END
+
+$$;
+
+
+ALTER FUNCTION public.probe_geometry_columns() OWNER TO postgres;
+
+--
+-- Name: rename_geometry_table_constraints(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION rename_geometry_table_constraints() RETURNS text
+    LANGUAGE sql IMMUTABLE
+    AS $$
+SELECT 'rename_geometry_table_constraint() is obsoleted'::text
+$$;
+
+
+ALTER FUNCTION public.rename_geometry_table_constraints() OWNER TO postgres;
+
+--
+-- Name: st_area(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_area(text) RETURNS double precision
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_Area($1::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_area(text) OWNER TO postgres;
+
+--
+-- Name: st_asbinary(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_asbinary(text) RETURNS bytea
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_AsBinary($1::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_asbinary(text) OWNER TO postgres;
+
+--
+-- Name: st_asgeojson(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_asgeojson(text) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_AsGeoJson($1::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_asgeojson(text) OWNER TO postgres;
+
+--
+-- Name: st_asgml(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_asgml(text) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_AsGML($1::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_asgml(text) OWNER TO postgres;
+
+--
+-- Name: st_askml(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_askml(text) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_AsKML($1::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_askml(text) OWNER TO postgres;
+
+--
+-- Name: st_assvg(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_assvg(text) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_AsSVG($1::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_assvg(text) OWNER TO postgres;
+
+--
+-- Name: st_astext(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_astext(text) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_AsText($1::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_astext(text) OWNER TO postgres;
+
+--
+-- Name: st_coveredby(text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_coveredby(text, text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_CoveredBy($1::geometry, $2::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_coveredby(text, text) OWNER TO postgres;
+
+--
+-- Name: st_covers(text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_covers(text, text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_Covers($1::geometry, $2::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_covers(text, text) OWNER TO postgres;
+
+--
+-- Name: st_distance(text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_distance(text, text) RETURNS double precision
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_Distance($1::geometry, $2::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_distance(text, text) OWNER TO postgres;
+
+--
+-- Name: st_dwithin(text, text, double precision); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_dwithin(text, text, double precision) RETURNS boolean
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_DWithin($1::geometry, $2::geometry, $3);  $_$;
+
+
+ALTER FUNCTION public.st_dwithin(text, text, double precision) OWNER TO postgres;
+
+--
+-- Name: st_intersects(text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_intersects(text, text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_Intersects($1::geometry, $2::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_intersects(text, text) OWNER TO postgres;
+
+--
+-- Name: st_length(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION st_length(text) RETURNS double precision
+    LANGUAGE sql IMMUTABLE STRICT
+    AS $_$ SELECT ST_Length($1::geometry);  $_$;
+
+
+ALTER FUNCTION public.st_length(text) OWNER TO postgres;
+
+--
+-- Name: unlockrows(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION unlockrows(text) RETURNS integer
+    LANGUAGE plpgsql STRICT
+    AS $_$ 
+DECLARE
+	ret int;
+BEGIN
+
+	IF NOT LongTransactionsEnabled() THEN
+		RAISE EXCEPTION 'Long transaction support disabled, use EnableLongTransaction() to enable.';
+	END IF;
+
+	EXECUTE 'DELETE FROM authorization_table where authid = ' ||
+		quote_literal($1);
+
+	GET DIAGNOSTICS ret = ROW_COUNT;
+
+	RETURN ret;
+END;
+$_$;
+
+
+ALTER FUNCTION public.unlockrows(text) OWNER TO postgres;
+
+--
+-- Name: updategeometrysrid(character varying, character varying, character varying, character varying, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION updategeometrysrid(character varying, character varying, character varying, character varying, integer) RETURNS text
+    LANGUAGE plpgsql STRICT
+    AS $_$
+DECLARE
+	catalog_name alias for $1;
+	schema_name alias for $2;
+	table_name alias for $3;
+	column_name alias for $4;
+	new_srid alias for $5;
+	myrec RECORD;
+	okay boolean;
+	cname varchar;
+	real_schema name;
+
+BEGIN
+
+
+	-- Find, check or fix schema_name
+	IF ( schema_name != '' ) THEN
+		okay = 'f';
+
+		FOR myrec IN SELECT nspname FROM pg_namespace WHERE text(nspname) = schema_name LOOP
+			okay := 't';
+		END LOOP;
+
+		IF ( okay <> 't' ) THEN
+			RAISE EXCEPTION 'Invalid schema name';
+		ELSE
+			real_schema = schema_name;
+		END IF;
+	ELSE
+		SELECT INTO real_schema current_schema()::text;
+	END IF;
+
+	-- Find out if the column is in the geometry_columns table
+	okay = 'f';
+	FOR myrec IN SELECT * from geometry_columns where f_table_schema = text(real_schema) and f_table_name = table_name and f_geometry_column = column_name LOOP
+		okay := 't';
+	END LOOP;
+	IF (okay <> 't') THEN
+		RAISE EXCEPTION 'column not found in geometry_columns table';
+		RETURN 'f';
+	END IF;
+
+	-- Update ref from geometry_columns table
+	EXECUTE 'UPDATE geometry_columns SET SRID = ' || new_srid::text ||
+		' where f_table_schema = ' ||
+		quote_literal(real_schema) || ' and f_table_name = ' ||
+		quote_literal(table_name)  || ' and f_geometry_column = ' ||
+		quote_literal(column_name);
+
+	-- Make up constraint name
+	cname = 'enforce_srid_'  || column_name;
+
+	-- Drop enforce_srid constraint
+	EXECUTE 'ALTER TABLE ' || quote_ident(real_schema) ||
+		'.' || quote_ident(table_name) ||
+		' DROP constraint ' || quote_ident(cname);
+
+	-- Update geometries SRID
+	EXECUTE 'UPDATE ' || quote_ident(real_schema) ||
+		'.' || quote_ident(table_name) ||
+		' SET ' || quote_ident(column_name) ||
+		' = setSRID(' || quote_ident(column_name) ||
+		', ' || new_srid::text || ')';
+
+	-- Reset enforce_srid constraint
+	EXECUTE 'ALTER TABLE ' || quote_ident(real_schema) ||
+		'.' || quote_ident(table_name) ||
+		' ADD constraint ' || quote_ident(cname) ||
+		' CHECK (srid(' || quote_ident(column_name) ||
+		') = ' || new_srid::text || ')';
+
+	RETURN real_schema || '.' || table_name || '.' || column_name ||' SRID changed to ' || new_srid::text;
+
+END;
+$_$;
+
+
+ALTER FUNCTION public.updategeometrysrid(character varying, character varying, character varying, character varying, integer) OWNER TO postgres;
+
+--
+-- Name: updategeometrysrid(character varying, character varying, character varying, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION updategeometrysrid(character varying, character varying, character varying, integer) RETURNS text
+    LANGUAGE plpgsql STRICT
+    AS $_$
+DECLARE
+	ret  text;
+BEGIN
+	SELECT UpdateGeometrySRID('',$1,$2,$3,$4) into ret;
+	RETURN ret;
+END;
+$_$;
+
+
+ALTER FUNCTION public.updategeometrysrid(character varying, character varying, character varying, integer) OWNER TO postgres;
+
+--
+-- Name: updategeometrysrid(character varying, character varying, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION updategeometrysrid(character varying, character varying, integer) RETURNS text
+    LANGUAGE plpgsql STRICT
+    AS $_$
+DECLARE
+	ret  text;
+BEGIN
+	SELECT UpdateGeometrySRID('','',$1,$2,$3) into ret;
+	RETURN ret;
+END;
+$_$;
+
+
+ALTER FUNCTION public.updategeometrysrid(character varying, character varying, integer) OWNER TO postgres;
+
+SET default_tablespace = '';
+
+SET default_with_oids = false;
+
+--
+-- Name: adjpositions; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE adjpositions (
+    synsetid integer DEFAULT 0 NOT NULL,
+    wordid integer DEFAULT 0 NOT NULL,
+    "position" character(2) NOT NULL
+);
+
+
+ALTER TABLE public.adjpositions OWNER TO postgres;
+
+--
+-- Name: senses; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE senses (
+    wordid integer DEFAULT 0 NOT NULL,
+    casedwordid integer,
+    synsetid integer DEFAULT 0 NOT NULL,
+    senseid integer,
+    sensenum smallint DEFAULT (0)::smallint NOT NULL,
+    lexid smallint DEFAULT (0)::smallint NOT NULL,
+    tagcount integer,
+    sensekey character varying(100) DEFAULT NULL::character varying
+);
+
+
+ALTER TABLE public.senses OWNER TO postgres;
+
+--
+-- Name: synsets; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE synsets (
+    synsetid integer DEFAULT 0 NOT NULL,
+    pos character(1) DEFAULT NULL::bpchar,
+    lexdomainid smallint DEFAULT (0)::smallint NOT NULL,
+    definition text
+);
+
+
+ALTER TABLE public.synsets OWNER TO postgres;
+
+--
+-- Name: words; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE words (
+    wordid integer DEFAULT 0 NOT NULL,
+    lemma character varying(80) NOT NULL
+);
+
+
+ALTER TABLE public.words OWNER TO postgres;
+
+--
+-- Name: adjectiveswithpositions; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW adjectiveswithpositions AS
+    SELECT senses.synsetid, senses.wordid, senses.casedwordid, senses.senseid, senses.sensenum, senses.lexid, senses.tagcount, senses.sensekey, adjpositions."position", words.lemma, synsets.pos, synsets.lexdomainid, synsets.definition FROM (((senses JOIN adjpositions USING (wordid, synsetid)) LEFT JOIN words USING (wordid)) LEFT JOIN synsets USING (synsetid));
+
+
+ALTER TABLE public.adjectiveswithpositions OWNER TO postgres;
+
+--
+-- Name: adjpositiontypes; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE adjpositiontypes (
+    "position" character(2) NOT NULL,
+    positionname character varying(24) NOT NULL
+);
+
+
+ALTER TABLE public.adjpositiontypes OWNER TO postgres;
+
+--
+-- Name: adwords_analytics; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE adwords_analytics (
+    pkid integer NOT NULL,
+    ga_table character varying(256) NOT NULL,
+    start_day date NOT NULL,
+    end_day date NOT NULL,
+    "ga_adContent" character varying(256) NOT NULL,
+    "ga_adGroup" character varying(256) NOT NULL,
+    "ga_adSlotPosition" character varying(256) NOT NULL,
+    "ga_adSlot" character varying(256) NOT NULL,
+    ga_campaign character varying(256) NOT NULL,
+    ga_keyword character varying(1024) NOT NULL,
+    ga_medium character varying(256) NOT NULL,
+    ga_bounces integer NOT NULL,
+    ga_entrances integer NOT NULL,
+    ga_visitors integer NOT NULL,
+    "ga_timeOnSite" integer NOT NULL,
+    ga_pageviews integer NOT NULL,
+    "ga_newVisits" integer NOT NULL,
+    ga_exits integer NOT NULL,
+    ga_visits integer NOT NULL,
+    "ga_timeOnPage" integer NOT NULL,
+    created timestamp with time zone NOT NULL,
+    current boolean NOT NULL
+);
+
+
+ALTER TABLE public.adwords_analytics OWNER TO postgres;
+
+--
+-- Name: adwords_analytics_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE adwords_analytics_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.adwords_analytics_pkid_seq OWNER TO postgres;
+
+--
+-- Name: adwords_analytics_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE adwords_analytics_pkid_seq OWNED BY adwords_analytics.pkid;
+
+
+--
+-- Name: adwords_analytics_report; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE adwords_analytics_report (
+    pkid integer NOT NULL,
+    report_id integer NOT NULL,
+    ga_table character varying(256) NOT NULL,
+    start_day date NOT NULL,
+    end_day date NOT NULL,
+    "ga_adContent" character varying(256) NOT NULL,
+    "ga_adGroup" character varying(256) NOT NULL,
+    "ga_adSlotPosition" character varying(256) NOT NULL,
+    "ga_adSlot" character varying(256) NOT NULL,
+    ga_campaign character varying(256) NOT NULL,
+    ga_keyword character varying(1024) NOT NULL,
+    ga_medium character varying(256) NOT NULL,
+    ga_bounces integer NOT NULL,
+    ga_entrances integer NOT NULL,
+    ga_visitors integer NOT NULL,
+    "ga_timeOnSite" integer NOT NULL,
+    ga_pageviews integer NOT NULL,
+    "ga_newVisits" integer NOT NULL,
+    ga_exits integer NOT NULL,
+    ga_visits integer NOT NULL,
+    "ga_timeOnPage" integer NOT NULL,
+    created timestamp with time zone NOT NULL
+);
+
+
+ALTER TABLE public.adwords_analytics_report OWNER TO postgres;
+
+--
+-- Name: adwords_analytics_report_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE adwords_analytics_report_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.adwords_analytics_report_pkid_seq OWNER TO postgres;
+
+--
+-- Name: adwords_analytics_report_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE adwords_analytics_report_pkid_seq OWNED BY adwords_analytics_report.pkid;
+
+
+--
+-- Name: auth_group; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE auth_group (
+    id integer NOT NULL,
+    name character varying(80) NOT NULL
+);
+
+
+ALTER TABLE public.auth_group OWNER TO postgres;
+
+--
+-- Name: auth_group_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE auth_group_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.auth_group_id_seq OWNER TO postgres;
+
+--
+-- Name: auth_group_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE auth_group_id_seq OWNED BY auth_group.id;
+
+
+--
+-- Name: auth_group_permissions; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE auth_group_permissions (
+    id integer NOT NULL,
+    group_id integer NOT NULL,
+    permission_id integer NOT NULL
+);
+
+
+ALTER TABLE public.auth_group_permissions OWNER TO postgres;
+
+--
+-- Name: auth_group_permissions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE auth_group_permissions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.auth_group_permissions_id_seq OWNER TO postgres;
+
+--
+-- Name: auth_group_permissions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE auth_group_permissions_id_seq OWNED BY auth_group_permissions.id;
+
+
+--
+-- Name: auth_message; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE auth_message (
+    id integer NOT NULL,
+    user_id integer NOT NULL,
+    message text NOT NULL
+);
+
+
+ALTER TABLE public.auth_message OWNER TO postgres;
+
+--
+-- Name: auth_message_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE auth_message_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.auth_message_id_seq OWNER TO postgres;
+
+--
+-- Name: auth_message_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE auth_message_id_seq OWNED BY auth_message.id;
+
+
+--
+-- Name: auth_permission; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE auth_permission (
+    id integer NOT NULL,
+    name character varying(50) NOT NULL,
+    content_type_id integer NOT NULL,
+    codename character varying(100) NOT NULL
+);
+
+
+ALTER TABLE public.auth_permission OWNER TO postgres;
+
+--
+-- Name: auth_permission_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE auth_permission_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.auth_permission_id_seq OWNER TO postgres;
+
+--
+-- Name: auth_permission_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE auth_permission_id_seq OWNED BY auth_permission.id;
+
+
+--
+-- Name: auth_user; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE auth_user (
+    id integer NOT NULL,
+    username character varying(30) NOT NULL,
+    first_name character varying(30) NOT NULL,
+    last_name character varying(30) NOT NULL,
+    email character varying(75) NOT NULL,
+    password character varying(128) NOT NULL,
+    is_staff boolean NOT NULL,
+    is_active boolean NOT NULL,
+    is_superuser boolean NOT NULL,
+    last_login timestamp with time zone NOT NULL,
+    date_joined timestamp with time zone NOT NULL
+);
+
+
+ALTER TABLE public.auth_user OWNER TO postgres;
+
+--
+-- Name: auth_user_groups; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE auth_user_groups (
+    id integer NOT NULL,
+    user_id integer NOT NULL,
+    group_id integer NOT NULL
+);
+
+
+ALTER TABLE public.auth_user_groups OWNER TO postgres;
+
+--
+-- Name: auth_user_groups_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE auth_user_groups_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.auth_user_groups_id_seq OWNER TO postgres;
+
+--
+-- Name: auth_user_groups_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE auth_user_groups_id_seq OWNED BY auth_user_groups.id;
+
+
+--
+-- Name: auth_user_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE auth_user_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.auth_user_id_seq OWNER TO postgres;
+
+--
+-- Name: auth_user_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE auth_user_id_seq OWNED BY auth_user.id;
+
+
+--
+-- Name: auth_user_user_permissions; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE auth_user_user_permissions (
+    id integer NOT NULL,
+    user_id integer NOT NULL,
+    permission_id integer NOT NULL
+);
+
+
+ALTER TABLE public.auth_user_user_permissions OWNER TO postgres;
+
+--
+-- Name: auth_user_user_permissions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE auth_user_user_permissions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.auth_user_user_permissions_id_seq OWNER TO postgres;
+
+--
+-- Name: auth_user_user_permissions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE auth_user_user_permissions_id_seq OWNED BY auth_user_user_permissions.id;
+
+
+--
+-- Name: befogg_cache_manager_log; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE befogg_cache_manager_log (
+    id bigint NOT NULL,
+    query text NOT NULL,
+    message character varying(256) NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.befogg_cache_manager_log OWNER TO postgres;
+
+--
+-- Name: befogg_cache_manager_log_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE befogg_cache_manager_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.befogg_cache_manager_log_id_seq OWNER TO postgres;
+
+--
+-- Name: befogg_cache_manager_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE befogg_cache_manager_log_id_seq OWNED BY befogg_cache_manager_log.id;
+
+
+--
+-- Name: candidate_scores; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE candidate_scores (
+    id integer NOT NULL,
+    candidate_id integer,
+    metric_id integer,
+    score real NOT NULL,
+    execution_time real DEFAULT (-1.0),
+    executed_jobs integer DEFAULT (-1)
+);
+
+
+ALTER TABLE public.candidate_scores OWNER TO postgres;
+
+--
+-- Name: candidate_scores_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE candidate_scores_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.candidate_scores_id_seq OWNER TO postgres;
+
+--
+-- Name: candidate_scores_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE candidate_scores_id_seq OWNED BY candidate_scores.id;
+
+
+--
+-- Name: candidates; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE candidates (
+    id integer NOT NULL,
+    case_id integer,
+    version_id integer,
+    output character varying NOT NULL
+);
+
+
+ALTER TABLE public.candidates OWNER TO postgres;
+
+--
+-- Name: candidates_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE candidates_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.candidates_id_seq OWNER TO postgres;
+
+--
+-- Name: candidates_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE candidates_id_seq OWNED BY candidates.id;
+
+
+--
+-- Name: candidates_query; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE candidates_query (
+    id integer NOT NULL,
+    case_id integer,
+    version_id integer,
+    output_query character varying NOT NULL,
+    status character varying(255) NOT NULL,
+    num_results integer,
+    execution_time real
+);
+
+
+ALTER TABLE public.candidates_query OWNER TO postgres;
+
+--
+-- Name: candidates_query_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE candidates_query_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.candidates_query_id_seq OWNER TO postgres;
+
+--
+-- Name: candidates_query_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE candidates_query_id_seq OWNED BY candidates_query.id;
+
+
+--
+-- Name: case_fogg_result; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE case_fogg_result (
+    case_id integer NOT NULL,
+    status integer NOT NULL,
+    num_rows integer,
+    total_results integer,
+    known_words text,
+    unknown_words text,
+    relaxed_words text,
+    all_entities text,
+    all_failures text,
+    execution_time real,
+    modification_date timestamp without time zone NOT NULL
+);
+
+
+ALTER TABLE public.case_fogg_result OWNER TO postgres;
+
+--
+-- Name: casedwords; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE casedwords (
+    casedwordid integer DEFAULT 0 NOT NULL,
+    wordid integer DEFAULT 0 NOT NULL,
+    cased character varying(80) NOT NULL
+);
+
+
+ALTER TABLE public.casedwords OWNER TO postgres;
+
+--
+-- Name: cases; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE cases (
+    id integer NOT NULL,
+    input character varying NOT NULL,
+    output character varying NOT NULL,
+    language_id integer,
+    comments character varying,
+    modification_date timestamp with time zone DEFAULT '2010-05-12 15:32:58.028101+01'::timestamp with time zone,
+    creation_date timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.cases OWNER TO postgres;
+
+--
+-- Name: cases_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE cases_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.cases_id_seq OWNER TO postgres;
+
+--
+-- Name: cases_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE cases_id_seq OWNED BY cases.id;
+
+
+--
+-- Name: collection_cases; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE collection_cases (
+    id integer NOT NULL,
+    collection_id integer,
+    case_id integer
+);
+
+
+ALTER TABLE public.collection_cases OWNER TO postgres;
+
+--
+-- Name: collection_cases_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE collection_cases_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.collection_cases_id_seq OWNER TO postgres;
+
+--
+-- Name: collection_cases_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE collection_cases_id_seq OWNED BY collection_cases.id;
+
+
+--
+-- Name: collection_scores; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE collection_scores (
+    id integer NOT NULL,
+    collection_id integer,
+    version_id integer,
+    metric_id integer,
+    score real NOT NULL
+);
+
+
+ALTER TABLE public.collection_scores OWNER TO postgres;
+
+--
+-- Name: collection_scores_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE collection_scores_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.collection_scores_id_seq OWNER TO postgres;
+
+--
+-- Name: collection_scores_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE collection_scores_id_seq OWNED BY collection_scores.id;
+
+
+--
+-- Name: collections; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE collections (
+    id integer NOT NULL,
+    name character varying NOT NULL,
+    description character varying
+);
+
+
+ALTER TABLE public.collections OWNER TO postgres;
+
+--
+-- Name: collections_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE collections_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.collections_id_seq OWNER TO postgres;
+
+--
+-- Name: collections_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE collections_id_seq OWNED BY collections.id;
+
+
+--
+-- Name: samples; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE samples (
+    synsetid integer DEFAULT 0 NOT NULL,
+    sampleid smallint DEFAULT (0)::smallint NOT NULL,
+    sample text NOT NULL
+);
+
+
+ALTER TABLE public.samples OWNER TO postgres;
+
+--
+-- Name: samplesets; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW samplesets AS
+    SELECT s.synsetid, array_to_string(ARRAY(SELECT samples.sample FROM samples WHERE (samples.synsetid = s.synsetid) ORDER BY samples.sampleid), '|'::text) AS sampleset FROM samples s GROUP BY s.synsetid ORDER BY s.synsetid;
+
+
+ALTER TABLE public.samplesets OWNER TO postgres;
+
+--
+-- Name: dict; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW dict AS
+    SELECT s.synsetid, words.wordid, s.casedwordid, words.lemma, s.senseid, s.sensenum, s.lexid, s.tagcount, s.sensekey, casedwords.cased, synsets.pos, synsets.lexdomainid, synsets.definition, samplesets.sampleset FROM ((((words LEFT JOIN senses s USING (wordid)) LEFT JOIN casedwords USING (wordid, casedwordid)) LEFT JOIN synsets USING (synsetid)) LEFT JOIN samplesets USING (synsetid));
+
+
+ALTER TABLE public.dict OWNER TO postgres;
+
+--
+-- Name: dictionaries; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE dictionaries (
+    pkid integer NOT NULL,
+    name character varying(256),
+    language character varying(6),
+    root character varying(256),
+    pos character varying(256),
+    weight character varying(256),
+    modification_date timestamp with time zone,
+    status integer DEFAULT 1,
+    matching_distance integer DEFAULT 0
+);
+
+
+ALTER TABLE public.dictionaries OWNER TO postgres;
+
+--
+-- Name: dictionaries_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE dictionaries_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.dictionaries_pkid_seq OWNER TO postgres;
+
+--
+-- Name: dictionaries_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE dictionaries_pkid_seq OWNED BY dictionaries.pkid;
+
+
+--
+-- Name: did_you_mean_corpus; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE did_you_mean_corpus (
+    pkid integer NOT NULL,
+    input character varying(512),
+    output text,
+    language character(2)
+);
+
+
+ALTER TABLE public.did_you_mean_corpus OWNER TO postgres;
+
+--
+-- Name: did_you_mean_corpus_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE did_you_mean_corpus_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.did_you_mean_corpus_pkid_seq OWNER TO postgres;
+
+--
+-- Name: did_you_mean_corpus_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE did_you_mean_corpus_pkid_seq OWNED BY did_you_mean_corpus.pkid;
+
+
+--
+-- Name: did_you_mean_execution; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE did_you_mean_execution (
+    pkid integer NOT NULL,
+    input character varying(512),
+    output text,
+    language character(2),
+    execution_id integer,
+    execution_date timestamp without time zone,
+    status real DEFAULT 0
+);
+
+
+ALTER TABLE public.did_you_mean_execution OWNER TO postgres;
+
+--
+-- Name: did_you_mean_execution_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE did_you_mean_execution_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.did_you_mean_execution_pkid_seq OWNER TO postgres;
+
+--
+-- Name: did_you_mean_execution_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE did_you_mean_execution_pkid_seq OWNED BY did_you_mean_execution.pkid;
+
+
+--
+-- Name: disabled_named_entity_meanings; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE disabled_named_entity_meanings (
+    pkid integer,
+    name character varying(256),
+    meaning text,
+    modification_date timestamp without time zone,
+    status integer,
+    weight double precision DEFAULT 1.0
+);
+
+
+ALTER TABLE public.disabled_named_entity_meanings OWNER TO postgres;
+
+--
+-- Name: django_admin_log; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE django_admin_log (
+    id integer NOT NULL,
+    action_time timestamp with time zone NOT NULL,
+    user_id integer NOT NULL,
+    content_type_id integer,
+    object_id text,
+    object_repr character varying(200) NOT NULL,
+    action_flag smallint NOT NULL,
+    change_message text NOT NULL,
+    CONSTRAINT django_admin_log_action_flag_check CHECK ((action_flag >= 0))
+);
+
+
+ALTER TABLE public.django_admin_log OWNER TO postgres;
+
+--
+-- Name: django_admin_log_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE django_admin_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.django_admin_log_id_seq OWNER TO postgres;
+
+--
+-- Name: django_admin_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE django_admin_log_id_seq OWNED BY django_admin_log.id;
+
+
+--
+-- Name: django_content_type; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE django_content_type (
+    id integer NOT NULL,
+    name character varying(100) NOT NULL,
+    app_label character varying(100) NOT NULL,
+    model character varying(100) NOT NULL
+);
+
+
+ALTER TABLE public.django_content_type OWNER TO postgres;
+
+--
+-- Name: django_content_type_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE django_content_type_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.django_content_type_id_seq OWNER TO postgres;
+
+--
+-- Name: django_content_type_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE django_content_type_id_seq OWNED BY django_content_type.id;
+
+
+--
+-- Name: django_session; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE django_session (
+    session_key character varying(40) NOT NULL,
+    session_data text NOT NULL,
+    expire_date timestamp with time zone NOT NULL
+);
+
+
+ALTER TABLE public.django_session OWNER TO postgres;
+
+--
+-- Name: django_site; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE django_site (
+    id integer NOT NULL,
+    domain character varying(100) NOT NULL,
+    name character varying(50) NOT NULL
+);
+
+
+ALTER TABLE public.django_site OWNER TO postgres;
+
+--
+-- Name: django_site_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE django_site_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.django_site_id_seq OWNER TO postgres;
+
+--
+-- Name: django_site_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE django_site_id_seq OWNED BY django_site.id;
+
+
+SET default_with_oids = true;
+
+--
+-- Name: geometry_columns; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE geometry_columns (
+    f_table_catalog character varying(256) NOT NULL,
+    f_table_schema character varying(256) NOT NULL,
+    f_table_name character varying(256) NOT NULL,
+    f_geometry_column character varying(256) NOT NULL,
+    coord_dimension integer NOT NULL,
+    srid integer NOT NULL,
+    type character varying(30) NOT NULL
+);
+
+
+ALTER TABLE public.geometry_columns OWNER TO postgres;
+
+SET default_with_oids = false;
+
+--
+-- Name: google_analytics_queries; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE google_analytics_queries (
+    pkid integer NOT NULL,
+    query character varying(512),
+    num_of_queries bigint,
+    modification_date timestamp without time zone,
+    language character(2)
+);
+
+
+ALTER TABLE public.google_analytics_queries OWNER TO postgres;
+
+--
+-- Name: google_analytics_queries_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE google_analytics_queries_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.google_analytics_queries_pkid_seq OWNER TO postgres;
+
+--
+-- Name: google_analytics_queries_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE google_analytics_queries_pkid_seq OWNED BY google_analytics_queries.pkid;
+
+
+--
+-- Name: languages; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE languages (
+    id integer NOT NULL,
+    abbreviation character varying NOT NULL,
+    name character varying NOT NULL
+);
+
+
+ALTER TABLE public.languages OWNER TO postgres;
+
+--
+-- Name: languages_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE languages_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.languages_id_seq OWNER TO postgres;
+
+--
+-- Name: languages_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE languages_id_seq OWNED BY languages.id;
+
+
+--
+-- Name: lexdomains; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE lexdomains (
+    lexdomainid smallint DEFAULT (0)::smallint NOT NULL,
+    lexdomainname character varying(32) DEFAULT NULL::character varying,
+    pos character(1) DEFAULT NULL::bpchar
+);
+
+
+ALTER TABLE public.lexdomains OWNER TO postgres;
+
+--
+-- Name: lexlinks; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE lexlinks (
+    synset1id integer DEFAULT 0 NOT NULL,
+    word1id integer DEFAULT 0 NOT NULL,
+    synset2id integer DEFAULT 0 NOT NULL,
+    word2id integer DEFAULT 0 NOT NULL,
+    linkid smallint DEFAULT (0)::smallint NOT NULL
+);
+
+
+ALTER TABLE public.lexlinks OWNER TO postgres;
+
+--
+-- Name: linktypes; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE linktypes (
+    linkid smallint DEFAULT (0)::smallint NOT NULL,
+    link character varying(50) DEFAULT NULL::character varying,
+    recurses boolean DEFAULT false NOT NULL
+);
+
+
+ALTER TABLE public.linktypes OWNER TO postgres;
+
+--
+-- Name: metrics; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE metrics (
+    id integer NOT NULL,
+    name character varying NOT NULL,
+    description character varying
+);
+
+
+ALTER TABLE public.metrics OWNER TO postgres;
+
+--
+-- Name: metrics_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE metrics_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.metrics_id_seq OWNER TO postgres;
+
+--
+-- Name: metrics_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE metrics_id_seq OWNED BY metrics.id;
+
+
+--
+-- Name: morphmaps; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE morphmaps (
+    wordid integer DEFAULT 0 NOT NULL,
+    pos character(1) DEFAULT NULL::bpchar NOT NULL,
+    morphid integer DEFAULT 0 NOT NULL
+);
+
+
+ALTER TABLE public.morphmaps OWNER TO postgres;
+
+--
+-- Name: morphs; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE morphs (
+    morphid integer DEFAULT 0 NOT NULL,
+    morph character varying(70) NOT NULL
+);
+
+
+ALTER TABLE public.morphs OWNER TO postgres;
+
+--
+-- Name: morphology; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW morphology AS
+    SELECT morphmaps.morphid, words.wordid, words.lemma, morphmaps.pos, morphs.morph FROM ((words JOIN morphmaps USING (wordid)) JOIN morphs USING (morphid));
+
+
+ALTER TABLE public.morphology OWNER TO postgres;
+
+--
+-- Name: named_entity_meanings; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE named_entity_meanings (
+    pkid integer NOT NULL,
+    name character varying(256),
+    meaning text,
+    modification_date timestamp without time zone,
+    status integer DEFAULT 1,
+    weight double precision DEFAULT 1.0,
+    ddb_score double precision DEFAULT 1.0,
+    meaning_id integer DEFAULT 0
+);
+
+
+ALTER TABLE public.named_entity_meanings OWNER TO postgres;
+
+--
+-- Name: postypes; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE postypes (
+    pos character(1) NOT NULL,
+    posname character varying(20) NOT NULL
+);
+
+
+ALTER TABLE public.postypes OWNER TO postgres;
+
+--
+-- Name: regexp_meanings; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE regexp_meanings (
+    pkid integer NOT NULL,
+    name character varying(256),
+    language character varying(6),
+    meaning text,
+    modification_date timestamp without time zone,
+    status integer,
+    weight double precision DEFAULT 1.0
+);
+
+
+ALTER TABLE public.regexp_meanings OWNER TO postgres;
+
+--
+-- Name: regexp_meanings_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE regexp_meanings_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.regexp_meanings_pkid_seq OWNER TO postgres;
+
+--
+-- Name: regexp_meanings_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE regexp_meanings_pkid_seq OWNED BY regexp_meanings.pkid;
+
+
+--
+-- Name: regression_result; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE regression_result (
+    id integer NOT NULL,
+    date_start bigint,
+    date_end bigint
+);
+
+
+ALTER TABLE public.regression_result OWNER TO postgres;
+
+--
+-- Name: regression_result_explained; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE regression_result_explained (
+    id integer NOT NULL,
+    collection_id integer,
+    case_id integer,
+    result_id integer,
+    success integer,
+    elapsed real,
+    results integer,
+    error_message text
+);
+
+
+ALTER TABLE public.regression_result_explained OWNER TO postgres;
+
+--
+-- Name: regression_result_explained_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE regression_result_explained_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.regression_result_explained_id_seq OWNER TO postgres;
+
+--
+-- Name: regression_result_explained_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE regression_result_explained_id_seq OWNED BY regression_result_explained.id;
+
+
+--
+-- Name: regression_result_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE regression_result_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.regression_result_id_seq OWNER TO postgres;
+
+--
+-- Name: regression_result_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE regression_result_id_seq OWNED BY regression_result.id;
+
+
+--
+-- Name: report; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE report (
+    pkid integer NOT NULL,
+    name character varying(256) NOT NULL,
+    description text NOT NULL,
+    created date NOT NULL,
+    start_day date NOT NULL,
+    end_day date NOT NULL
+);
+
+
+ALTER TABLE public.report OWNER TO postgres;
+
+--
+-- Name: report_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE report_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.report_pkid_seq OWNER TO postgres;
+
+--
+-- Name: report_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE report_pkid_seq OWNED BY report.pkid;
+
+
+--
+-- Name: report_websites; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE report_websites (
+    id integer NOT NULL,
+    report_id integer NOT NULL,
+    website_id integer NOT NULL
+);
+
+
+ALTER TABLE public.report_websites OWNER TO postgres;
+
+--
+-- Name: report_websites_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE report_websites_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.report_websites_id_seq OWNER TO postgres;
+
+--
+-- Name: report_websites_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE report_websites_id_seq OWNED BY report_websites.id;
+
+
+--
+-- Name: semAdGroup_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE "semAdGroup_pkid_seq"
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public."semAdGroup_pkid_seq" OWNER TO postgres;
+
+--
+-- Name: semAd_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE "semAd_pkid_seq"
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public."semAd_pkid_seq" OWNER TO postgres;
+
+--
+-- Name: semCampaignSet_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE "semCampaignSet_pkid_seq"
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public."semCampaignSet_pkid_seq" OWNER TO postgres;
+
+--
+-- Name: semCampaign_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE "semCampaign_pkid_seq"
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public."semCampaign_pkid_seq" OWNER TO postgres;
+
+--
+-- Name: semKeyword_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE "semKeyword_pkid_seq"
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public."semKeyword_pkid_seq" OWNER TO postgres;
+
+--
+-- Name: semlinks; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE semlinks (
+    synset1id integer DEFAULT 0 NOT NULL,
+    synset2id integer DEFAULT 0 NOT NULL,
+    linkid smallint DEFAULT (0)::smallint NOT NULL
+);
+
+
+ALTER TABLE public.semlinks OWNER TO postgres;
+
+--
+-- Name: sensesxsynsets; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW sensesxsynsets AS
+    SELECT senses.synsetid, senses.wordid, senses.casedwordid, senses.senseid, senses.sensenum, senses.lexid, senses.tagcount, senses.sensekey, synsets.pos, synsets.lexdomainid, synsets.definition FROM (senses JOIN synsets USING (synsetid));
+
+
+ALTER TABLE public.sensesxsynsets OWNER TO postgres;
+
+--
+-- Name: sensesxlexlinksxsenses; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW sensesxlexlinksxsenses AS
+    SELECT l.linkid, s.synsetid AS ssynsetid, s.wordid AS swordid, s.senseid AS ssenseid, s.casedwordid AS scasedwordid, s.sensenum AS ssensenum, s.lexid AS slexid, s.tagcount AS stagcount, s.sensekey AS ssensekey, s.pos AS spos, s.lexdomainid AS slexdomainid, s.definition AS sdefinition, d.synsetid AS dsynsetid, d.wordid AS dwordid, d.senseid AS dsenseid, d.casedwordid AS dcasedwordid, d.sensenum AS dsensenum, d.lexid AS dlexid, d.tagcount AS dtagcount, d.sensekey AS dsensekey, d.pos AS dpos, d.lexdomainid AS dlexdomainid, d.definition AS ddefinition FROM ((sensesxsynsets s JOIN lexlinks l ON (((s.synsetid = l.synset1id) AND (s.wordid = l.word1id)))) JOIN sensesxsynsets d ON (((l.synset2id = d.synsetid) AND (l.word2id = d.wordid))));
+
+
+ALTER TABLE public.sensesxlexlinksxsenses OWNER TO postgres;
+
+--
+-- Name: sensesxsemlinksxsenses; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW sensesxsemlinksxsenses AS
+    SELECT l.linkid, s.synsetid AS ssynsetid, s.wordid AS swordid, s.senseid AS ssenseid, s.casedwordid AS scasedwordid, s.sensenum AS ssensenum, s.lexid AS slexid, s.tagcount AS stagcount, s.sensekey AS ssensekey, s.pos AS spos, s.lexdomainid AS slexdomainid, s.definition AS sdefinition, d.synsetid AS dsynsetid, d.wordid AS dwordid, d.senseid AS dsenseid, d.casedwordid AS dcasedwordid, d.sensenum AS dsensenum, d.lexid AS dlexid, d.tagcount AS dtagcount, d.sensekey AS dsensekey, d.pos AS dpos, d.lexdomainid AS dlexdomainid, d.definition AS ddefinition FROM ((sensesxsynsets s JOIN semlinks l ON ((s.synsetid = l.synset1id))) JOIN sensesxsynsets d ON ((l.synset2id = d.synsetid)));
+
+
+ALTER TABLE public.sensesxsemlinksxsenses OWNER TO postgres;
+
+--
+-- Name: seq_sem_pkid; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE seq_sem_pkid
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.seq_sem_pkid OWNER TO postgres;
+
+--
+-- Name: spanish_wordnet; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE spanish_wordnet (
+    pkid integer NOT NULL,
+    name character varying(80),
+    synsetid integer
+);
+
+
+ALTER TABLE public.spanish_wordnet OWNER TO postgres;
+
+--
+-- Name: spanish_wordnet_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE spanish_wordnet_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.spanish_wordnet_pkid_seq OWNER TO postgres;
+
+--
+-- Name: spanish_wordnet_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE spanish_wordnet_pkid_seq OWNED BY spanish_wordnet.pkid;
+
+
+--
+-- Name: spatial_ref_sys; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE spatial_ref_sys (
+    srid integer NOT NULL,
+    auth_name character varying(256),
+    auth_srid integer,
+    srtext character varying(2048),
+    proj4text character varying(2048)
+);
+
+
+ALTER TABLE public.spatial_ref_sys OWNER TO postgres;
+
+--
+-- Name: sq_workarea; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE sq_workarea
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.sq_workarea OWNER TO postgres;
+
+--
+-- Name: synset_frequencies; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE synset_frequencies (
+    pkid integer NOT NULL,
+    synsetid integer,
+    frequency integer,
+    modification_date timestamp with time zone DEFAULT now(),
+    status integer DEFAULT 1
+);
+
+
+ALTER TABLE public.synset_frequencies OWNER TO postgres;
+
+--
+-- Name: synset_frequencies_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE synset_frequencies_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.synset_frequencies_pkid_seq OWNER TO postgres;
+
+--
+-- Name: synset_frequencies_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE synset_frequencies_pkid_seq OWNED BY synset_frequencies.pkid;
+
+
+--
+-- Name: synset_meanings; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE synset_meanings (
+    pkid integer NOT NULL,
+    synsetid integer,
+    meaning text,
+    modification_date timestamp with time zone,
+    status integer DEFAULT 1,
+    weight double precision DEFAULT 1.0
+);
+
+
+ALTER TABLE public.synset_meanings OWNER TO postgres;
+
+--
+-- Name: synset_meanings_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE synset_meanings_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.synset_meanings_pkid_seq OWNER TO postgres;
+
+--
+-- Name: synset_meanings_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE synset_meanings_pkid_seq OWNED BY synset_meanings.pkid;
+
+
+--
+-- Name: synsetsxsemlinksxsynsets; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW synsetsxsemlinksxsynsets AS
+    SELECT l.linkid, s.synsetid AS ssynsetid, s.definition AS sdefinition, d.synsetid AS dsynsetid, d.definition AS ddefinition FROM ((synsets s JOIN semlinks l ON ((s.synsetid = l.synset1id))) JOIN synsets d ON ((l.synset2id = d.synsetid)));
+
+
+ALTER TABLE public.synsetsxsemlinksxsynsets OWNER TO postgres;
+
+--
+-- Name: vframemaps; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE vframemaps (
+    synsetid integer DEFAULT 0 NOT NULL,
+    wordid integer NOT NULL,
+    frameid smallint DEFAULT (0)::smallint NOT NULL
+);
+
+
+ALTER TABLE public.vframemaps OWNER TO postgres;
+
+--
+-- Name: vframes; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE vframes (
+    frameid smallint DEFAULT (0)::smallint NOT NULL,
+    frame character varying(50) DEFAULT NULL::character varying
+);
+
+
+ALTER TABLE public.vframes OWNER TO postgres;
+
+--
+-- Name: verbswithframes; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW verbswithframes AS
+    SELECT senses.synsetid, senses.wordid, vframemaps.frameid, senses.casedwordid, senses.senseid, senses.sensenum, senses.lexid, senses.tagcount, senses.sensekey, vframes.frame, words.lemma, synsets.pos, synsets.lexdomainid, synsets.definition FROM ((((senses JOIN vframemaps USING (wordid, synsetid)) JOIN vframes USING (frameid)) LEFT JOIN words USING (wordid)) LEFT JOIN synsets USING (synsetid));
+
+
+ALTER TABLE public.verbswithframes OWNER TO postgres;
+
+--
+-- Name: versions; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE versions (
+    id integer NOT NULL,
+    number integer NOT NULL,
+    "time" timestamp without time zone
+);
+
+
+ALTER TABLE public.versions OWNER TO postgres;
+
+--
+-- Name: versions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE versions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.versions_id_seq OWNER TO postgres;
+
+--
+-- Name: versions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE versions_id_seq OWNED BY versions.id;
+
+
+--
+-- Name: vframesentencemaps; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE vframesentencemaps (
+    synsetid integer DEFAULT 0 NOT NULL,
+    wordid integer DEFAULT 0 NOT NULL,
+    sentenceid smallint DEFAULT (0)::smallint NOT NULL
+);
+
+
+ALTER TABLE public.vframesentencemaps OWNER TO postgres;
+
+--
+-- Name: vframesentences; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE vframesentences (
+    sentenceid smallint DEFAULT (0)::smallint NOT NULL,
+    sentence text
+);
+
+
+ALTER TABLE public.vframesentences OWNER TO postgres;
+
+--
+-- Name: website; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE website (
+    pkid integer NOT NULL,
+    name character varying(256) NOT NULL,
+    google_table character varying(256) NOT NULL
+);
+
+
+ALTER TABLE public.website OWNER TO postgres;
+
+--
+-- Name: website_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE website_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.website_pkid_seq OWNER TO postgres;
+
+--
+-- Name: website_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE website_pkid_seq OWNED BY website.pkid;
+
+
+--
+-- Name: word_meanings; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE word_meanings (
+    pkid integer NOT NULL,
+    name character varying(256),
+    language character varying(6),
+    meaning text,
+    modification_date timestamp with time zone,
+    status integer DEFAULT 1,
+    weight double precision DEFAULT 1.0
+);
+
+
+ALTER TABLE public.word_meanings OWNER TO postgres;
+
+--
+-- Name: word_meanings_pkid_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE word_meanings_pkid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MAXVALUE
+    NO MINVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.word_meanings_pkid_seq OWNER TO postgres;
+
+--
+-- Name: word_meanings_pkid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE word_meanings_pkid_seq OWNED BY word_meanings.pkid;
+
+
+--
+-- Name: wordsxsenses; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW wordsxsenses AS
+    SELECT words.wordid, words.lemma, senses.casedwordid, senses.synsetid, senses.senseid, senses.sensenum, senses.lexid, senses.tagcount, senses.sensekey FROM (words JOIN senses USING (wordid));
+
+
+ALTER TABLE public.wordsxsenses OWNER TO postgres;
+
+--
+-- Name: wordsxsensesxsynsets; Type: VIEW; Schema: public; Owner: postgres
+--
+
+CREATE VIEW wordsxsensesxsynsets AS
+    SELECT senses.synsetid, words.wordid, words.lemma, senses.casedwordid, senses.senseid, senses.sensenum, senses.lexid, senses.tagcount, senses.sensekey, synsets.pos, synsets.lexdomainid, synsets.definition FROM ((words JOIN senses USING (wordid)) JOIN synsets USING (synsetid));
+
+
+ALTER TABLE public.wordsxsensesxsynsets OWNER TO postgres;
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY adwords_analytics ALTER COLUMN pkid SET DEFAULT nextval('adwords_analytics_pkid_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY adwords_analytics_report ALTER COLUMN pkid SET DEFAULT nextval('adwords_analytics_report_pkid_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_group ALTER COLUMN id SET DEFAULT nextval('auth_group_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_group_permissions ALTER COLUMN id SET DEFAULT nextval('auth_group_permissions_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_message ALTER COLUMN id SET DEFAULT nextval('auth_message_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_permission ALTER COLUMN id SET DEFAULT nextval('auth_permission_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_user ALTER COLUMN id SET DEFAULT nextval('auth_user_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_user_groups ALTER COLUMN id SET DEFAULT nextval('auth_user_groups_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_user_user_permissions ALTER COLUMN id SET DEFAULT nextval('auth_user_user_permissions_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY befogg_cache_manager_log ALTER COLUMN id SET DEFAULT nextval('befogg_cache_manager_log_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY candidate_scores ALTER COLUMN id SET DEFAULT nextval('candidate_scores_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY candidates ALTER COLUMN id SET DEFAULT nextval('candidates_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY candidates_query ALTER COLUMN id SET DEFAULT nextval('candidates_query_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY cases ALTER COLUMN id SET DEFAULT nextval('cases_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY collection_cases ALTER COLUMN id SET DEFAULT nextval('collection_cases_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY collection_scores ALTER COLUMN id SET DEFAULT nextval('collection_scores_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY collections ALTER COLUMN id SET DEFAULT nextval('collections_id_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY dictionaries ALTER COLUMN pkid SET DEFAULT nextval('dictionaries_pkid_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY did_you_mean_corpus ALTER COLUMN pkid SET DEFAULT nextval('did_you_mean_corpus_pkid_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY did_you_mean_execution ALTER COLUMN pkid SET DEFAULT nextval('did_you_mean_execution_pkid_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY django_admin_log ALTER COLUMN id SET DEFAULT nextval('django_admin_log_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY django_content_type ALTER COLUMN id SET DEFAULT nextval('django_content_type_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY django_site ALTER COLUMN id SET DEFAULT nextval('django_site_id_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY google_analytics_queries ALTER COLUMN pkid SET DEFAULT nextval('google_analytics_queries_pkid_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY languages ALTER COLUMN id SET DEFAULT nextval('languages_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY metrics ALTER COLUMN id SET DEFAULT nextval('metrics_id_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY regexp_meanings ALTER COLUMN pkid SET DEFAULT nextval('regexp_meanings_pkid_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY regression_result ALTER COLUMN id SET DEFAULT nextval('regression_result_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY regression_result_explained ALTER COLUMN id SET DEFAULT nextval('regression_result_explained_id_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY report ALTER COLUMN pkid SET DEFAULT nextval('report_pkid_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY report_websites ALTER COLUMN id SET DEFAULT nextval('report_websites_id_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY spanish_wordnet ALTER COLUMN pkid SET DEFAULT nextval('spanish_wordnet_pkid_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY synset_frequencies ALTER COLUMN pkid SET DEFAULT nextval('synset_frequencies_pkid_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY synset_meanings ALTER COLUMN pkid SET DEFAULT nextval('synset_meanings_pkid_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY versions ALTER COLUMN id SET DEFAULT nextval('versions_id_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY website ALTER COLUMN pkid SET DEFAULT nextval('website_pkid_seq'::regclass);
+
+
+--
+-- Name: pkid; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY word_meanings ALTER COLUMN pkid SET DEFAULT nextval('word_meanings_pkid_seq'::regclass);
+
+
+--
+-- Name: adwords_analytics_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY adwords_analytics
+    ADD CONSTRAINT adwords_analytics_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: adwords_analytics_report_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY adwords_analytics_report
+    ADD CONSTRAINT adwords_analytics_report_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: auth_group_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_group
+    ADD CONSTRAINT auth_group_name_key UNIQUE (name);
+
+
+--
+-- Name: auth_group_permissions_group_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_group_permissions
+    ADD CONSTRAINT auth_group_permissions_group_id_key UNIQUE (group_id, permission_id);
+
+
+--
+-- Name: auth_group_permissions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_group_permissions
+    ADD CONSTRAINT auth_group_permissions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_group_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_group
+    ADD CONSTRAINT auth_group_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_message_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_message
+    ADD CONSTRAINT auth_message_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_permission_content_type_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_permission
+    ADD CONSTRAINT auth_permission_content_type_id_key UNIQUE (content_type_id, codename);
+
+
+--
+-- Name: auth_permission_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_permission
+    ADD CONSTRAINT auth_permission_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_user_groups_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_user_groups
+    ADD CONSTRAINT auth_user_groups_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_user_groups_user_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_user_groups
+    ADD CONSTRAINT auth_user_groups_user_id_key UNIQUE (user_id, group_id);
+
+
+--
+-- Name: auth_user_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_user
+    ADD CONSTRAINT auth_user_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_user_user_permissions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_user_user_permissions
+    ADD CONSTRAINT auth_user_user_permissions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auth_user_user_permissions_user_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_user_user_permissions
+    ADD CONSTRAINT auth_user_user_permissions_user_id_key UNIQUE (user_id, permission_id);
+
+
+--
+-- Name: auth_user_username_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY auth_user
+    ADD CONSTRAINT auth_user_username_key UNIQUE (username);
+
+
+--
+-- Name: candidate_scores_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY candidate_scores
+    ADD CONSTRAINT candidate_scores_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: candidates_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY candidates
+    ADD CONSTRAINT candidates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: candidates_query_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY candidates_query
+    ADD CONSTRAINT candidates_query_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: case_fogg_result_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY case_fogg_result
+    ADD CONSTRAINT case_fogg_result_pkey PRIMARY KEY (case_id);
+
+
+--
+-- Name: cases_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY cases
+    ADD CONSTRAINT cases_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: collection_cases_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY collection_cases
+    ADD CONSTRAINT collection_cases_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: collection_scores_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY collection_scores
+    ADD CONSTRAINT collection_scores_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: collections_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY collections
+    ADD CONSTRAINT collections_name_key UNIQUE (name);
+
+
+--
+-- Name: collections_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY collections
+    ADD CONSTRAINT collections_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dictionaries_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY dictionaries
+    ADD CONSTRAINT dictionaries_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: did_you_mean_corpus_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY did_you_mean_corpus
+    ADD CONSTRAINT did_you_mean_corpus_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: did_you_mean_execution_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY did_you_mean_execution
+    ADD CONSTRAINT did_you_mean_execution_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: django_admin_log_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY django_admin_log
+    ADD CONSTRAINT django_admin_log_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: django_content_type_app_label_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY django_content_type
+    ADD CONSTRAINT django_content_type_app_label_key UNIQUE (app_label, model);
+
+
+--
+-- Name: django_content_type_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY django_content_type
+    ADD CONSTRAINT django_content_type_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: django_session_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY django_session
+    ADD CONSTRAINT django_session_pkey PRIMARY KEY (session_key);
+
+
+--
+-- Name: django_site_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY django_site
+    ADD CONSTRAINT django_site_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: geometry_columns_pk; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY geometry_columns
+    ADD CONSTRAINT geometry_columns_pk PRIMARY KEY (f_table_catalog, f_table_schema, f_table_name, f_geometry_column);
+
+
+--
+-- Name: google_analytics_queries_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY google_analytics_queries
+    ADD CONSTRAINT google_analytics_queries_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: idx_unique_synset_freq; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY synset_frequencies
+    ADD CONSTRAINT idx_unique_synset_freq UNIQUE (synsetid);
+
+
+--
+-- Name: languages_abbreviation_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY languages
+    ADD CONSTRAINT languages_abbreviation_key UNIQUE (abbreviation);
+
+
+--
+-- Name: languages_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY languages
+    ADD CONSTRAINT languages_name_key UNIQUE (name);
+
+
+--
+-- Name: languages_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY languages
+    ADD CONSTRAINT languages_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: metrics_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY metrics
+    ADD CONSTRAINT metrics_name_key UNIQUE (name);
+
+
+--
+-- Name: metrics_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY metrics
+    ADD CONSTRAINT metrics_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: named_entity_meanings_pkey2; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY named_entity_meanings
+    ADD CONSTRAINT named_entity_meanings_pkey2 PRIMARY KEY (pkid);
+
+
+--
+-- Name: pk_adjpositions; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY adjpositions
+    ADD CONSTRAINT pk_adjpositions PRIMARY KEY (synsetid, wordid);
+
+
+--
+-- Name: pk_adjpositiontypes; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY adjpositiontypes
+    ADD CONSTRAINT pk_adjpositiontypes PRIMARY KEY ("position");
+
+
+--
+-- Name: pk_casedwords; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY casedwords
+    ADD CONSTRAINT pk_casedwords PRIMARY KEY (casedwordid);
+
+
+--
+-- Name: pk_lexdomains; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY lexdomains
+    ADD CONSTRAINT pk_lexdomains PRIMARY KEY (lexdomainid);
+
+
+--
+-- Name: pk_lexlinks; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY lexlinks
+    ADD CONSTRAINT pk_lexlinks PRIMARY KEY (word1id, synset1id, word2id, synset2id, linkid);
+
+
+--
+-- Name: pk_linktypes; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY linktypes
+    ADD CONSTRAINT pk_linktypes PRIMARY KEY (linkid);
+
+
+--
+-- Name: pk_morphmaps; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY morphmaps
+    ADD CONSTRAINT pk_morphmaps PRIMARY KEY (morphid, pos, wordid);
+
+
+--
+-- Name: pk_morphs; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY morphs
+    ADD CONSTRAINT pk_morphs PRIMARY KEY (morphid);
+
+
+--
+-- Name: pk_postypes; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY postypes
+    ADD CONSTRAINT pk_postypes PRIMARY KEY (pos);
+
+
+--
+-- Name: pk_samples; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY samples
+    ADD CONSTRAINT pk_samples PRIMARY KEY (synsetid, sampleid);
+
+
+--
+-- Name: pk_semlinks; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY semlinks
+    ADD CONSTRAINT pk_semlinks PRIMARY KEY (synset1id, synset2id, linkid);
+
+
+--
+-- Name: pk_senses; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY senses
+    ADD CONSTRAINT pk_senses PRIMARY KEY (wordid, synsetid);
+
+
+--
+-- Name: pk_synsets; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY synsets
+    ADD CONSTRAINT pk_synsets PRIMARY KEY (synsetid);
+
+
+--
+-- Name: pk_vframemaps; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY vframemaps
+    ADD CONSTRAINT pk_vframemaps PRIMARY KEY (synsetid, wordid, frameid);
+
+
+--
+-- Name: pk_vframes; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY vframes
+    ADD CONSTRAINT pk_vframes PRIMARY KEY (frameid);
+
+
+--
+-- Name: pk_vframesentencemaps; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY vframesentencemaps
+    ADD CONSTRAINT pk_vframesentencemaps PRIMARY KEY (synsetid, wordid, sentenceid);
+
+
+--
+-- Name: pk_vframesentences; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY vframesentences
+    ADD CONSTRAINT pk_vframesentences PRIMARY KEY (sentenceid);
+
+
+--
+-- Name: pk_words; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY words
+    ADD CONSTRAINT pk_words PRIMARY KEY (wordid);
+
+
+--
+-- Name: pkid_befogg_cache_manager_log; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY befogg_cache_manager_log
+    ADD CONSTRAINT pkid_befogg_cache_manager_log PRIMARY KEY (id);
+
+
+--
+-- Name: pkid_regression_result_explained_id; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY regression_result_explained
+    ADD CONSTRAINT pkid_regression_result_explained_id PRIMARY KEY (id);
+
+
+--
+-- Name: pkid_regression_result_id; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY regression_result
+    ADD CONSTRAINT pkid_regression_result_id PRIMARY KEY (id);
+
+
+--
+-- Name: regexp_meanings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY regexp_meanings
+    ADD CONSTRAINT regexp_meanings_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: report_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY report
+    ADD CONSTRAINT report_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: report_websites_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY report_websites
+    ADD CONSTRAINT report_websites_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: report_websites_report_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY report_websites
+    ADD CONSTRAINT report_websites_report_id_key UNIQUE (report_id, website_id);
+
+
+--
+-- Name: spanish_wordnet_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY spanish_wordnet
+    ADD CONSTRAINT spanish_wordnet_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: spatial_ref_sys_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY spatial_ref_sys
+    ADD CONSTRAINT spatial_ref_sys_pkey PRIMARY KEY (srid);
+
+
+--
+-- Name: synset_frequencies_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY synset_frequencies
+    ADD CONSTRAINT synset_frequencies_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: synset_meanings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY synset_meanings
+    ADD CONSTRAINT synset_meanings_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: uniq_collection_cases_case_id_collection_id; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY collection_cases
+    ADD CONSTRAINT uniq_collection_cases_case_id_collection_id UNIQUE (collection_id, case_id);
+
+
+--
+-- Name: versions_number_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY versions
+    ADD CONSTRAINT versions_number_key UNIQUE (number);
+
+
+--
+-- Name: versions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY versions
+    ADD CONSTRAINT versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: website_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY website
+    ADD CONSTRAINT website_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: word_meanings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY word_meanings
+    ADD CONSTRAINT word_meanings_pkey PRIMARY KEY (pkid);
+
+
+--
+-- Name: adwords_analytics_report_report_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX adwords_analytics_report_report_id ON adwords_analytics_report USING btree (report_id);
+
+
+--
+-- Name: auth_message_user_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX auth_message_user_id ON auth_message USING btree (user_id);
+
+
+--
+-- Name: auth_permission_content_type_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX auth_permission_content_type_id ON auth_permission USING btree (content_type_id);
+
+
+--
+-- Name: case_input_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX case_input_idx ON cases USING gin (to_tsvector('english'::regconfig, (input)::text));
+
+
+--
+-- Name: django_admin_log_content_type_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX django_admin_log_content_type_id ON django_admin_log USING btree (content_type_id);
+
+
+--
+-- Name: django_admin_log_user_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX django_admin_log_user_id ON django_admin_log USING btree (user_id);
+
+
+--
+-- Name: idx_dict_lang_name; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_dict_lang_name ON dictionaries USING btree (language, name);
+
+
+--
+-- Name: idx_named_entity_modif; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_named_entity_modif ON named_entity_meanings USING btree (modification_date);
+
+
+--
+-- Name: idx_named_entity_name_status; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_named_entity_name_status ON named_entity_meanings USING btree (name, status);
+
+
+--
+-- Name: idx_newnamed_entity_name_status; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_newnamed_entity_name_status ON named_entity_meanings USING btree (name, status);
+
+
+--
+-- Name: idx_regression_result_elapsed; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_regression_result_elapsed ON regression_result_explained USING btree (elapsed);
+
+
+--
+-- Name: idx_regression_result_error_message; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_regression_result_error_message ON regression_result_explained USING btree (error_message);
+
+
+--
+-- Name: idx_regression_result_explain_case_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_regression_result_explain_case_id ON regression_result_explained USING btree (case_id);
+
+
+--
+-- Name: idx_regression_result_explain_collection_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_regression_result_explain_collection_id ON regression_result_explained USING btree (collection_id);
+
+
+--
+-- Name: idx_regression_result_explain_result_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_regression_result_explain_result_id ON regression_result_explained USING btree (result_id);
+
+
+--
+-- Name: idx_regression_result_explain_succes; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_regression_result_explain_succes ON regression_result_explained USING btree (success);
+
+
+--
+-- Name: idx_regression_result_results; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_regression_result_results ON regression_result_explained USING btree (results);
+
+
+--
+-- Name: idx_regression_results_date_end; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_regression_results_date_end ON regression_result USING btree (date_end);
+
+
+--
+-- Name: idx_regression_results_date_start; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_regression_results_date_start ON regression_result USING btree (date_start);
+
+
+--
+-- Name: idx_spanish_wordnet_name; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_spanish_wordnet_name ON spanish_wordnet USING btree (name);
+
+
+--
+-- Name: idx_synset_meaning_1; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_synset_meaning_1 ON synset_meanings USING btree (synsetid);
+
+
+--
+-- Name: idx_word_lang; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX idx_word_lang ON dictionaries USING btree (language, modification_date);
+
+
+--
+-- Name: ix_regexp_meanings_language; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX ix_regexp_meanings_language ON regexp_meanings USING btree (language);
+
+
+--
+-- Name: ix_regexp_meanings_modification_date; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX ix_regexp_meanings_modification_date ON regexp_meanings USING btree (modification_date);
+
+
+--
+-- Name: k_adjpositions_synsetid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_adjpositions_synsetid ON adjpositions USING btree (synsetid);
+
+
+--
+-- Name: k_adjpositions_wordid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_adjpositions_wordid ON adjpositions USING btree (wordid);
+
+
+--
+-- Name: k_casedwords_wordid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_casedwords_wordid ON casedwords USING btree (wordid);
+
+
+--
+-- Name: k_lexlinks_linkid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_lexlinks_linkid ON lexlinks USING btree (linkid);
+
+
+--
+-- Name: k_lexlinks_synset1id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_lexlinks_synset1id ON lexlinks USING btree (synset1id);
+
+
+--
+-- Name: k_lexlinks_synset1id_word1id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_lexlinks_synset1id_word1id ON lexlinks USING btree (synset1id, word1id);
+
+
+--
+-- Name: k_lexlinks_synset2id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_lexlinks_synset2id ON lexlinks USING btree (synset2id);
+
+
+--
+-- Name: k_lexlinks_synset2id_word2id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_lexlinks_synset2id_word2id ON lexlinks USING btree (synset2id, word2id);
+
+
+--
+-- Name: k_lexlinks_word1id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_lexlinks_word1id ON lexlinks USING btree (word1id);
+
+
+--
+-- Name: k_lexlinks_word2id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_lexlinks_word2id ON lexlinks USING btree (word2id);
+
+
+--
+-- Name: k_morphmaps_morphid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_morphmaps_morphid ON morphmaps USING btree (morphid);
+
+
+--
+-- Name: k_morphmaps_wordid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_morphmaps_wordid ON morphmaps USING btree (wordid);
+
+
+--
+-- Name: k_samples_synsetid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_samples_synsetid ON samples USING btree (synsetid);
+
+
+--
+-- Name: k_semlinks_linkid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_semlinks_linkid ON semlinks USING btree (linkid);
+
+
+--
+-- Name: k_semlinks_synset1id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_semlinks_synset1id ON semlinks USING btree (synset1id);
+
+
+--
+-- Name: k_semlinks_synset2id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_semlinks_synset2id ON semlinks USING btree (synset2id);
+
+
+--
+-- Name: k_senses_synsetid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_senses_synsetid ON senses USING btree (synsetid);
+
+
+--
+-- Name: k_senses_wordid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_senses_wordid ON senses USING btree (wordid);
+
+
+--
+-- Name: k_synsets_lexdomainid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_synsets_lexdomainid ON synsets USING btree (lexdomainid);
+
+
+--
+-- Name: k_vframemaps_frameid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_vframemaps_frameid ON vframemaps USING btree (frameid);
+
+
+--
+-- Name: k_vframemaps_synsetid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_vframemaps_synsetid ON vframemaps USING btree (synsetid);
+
+
+--
+-- Name: k_vframemaps_wordid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_vframemaps_wordid ON vframemaps USING btree (wordid);
+
+
+--
+-- Name: k_vframesentencemaps_sentenceid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_vframesentencemaps_sentenceid ON vframesentencemaps USING btree (sentenceid);
+
+
+--
+-- Name: k_vframesentencemaps_synsetid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_vframesentencemaps_synsetid ON vframesentencemaps USING btree (synsetid);
+
+
+--
+-- Name: k_vframesentencemaps_wordid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX k_vframesentencemaps_wordid ON vframesentencemaps USING btree (wordid);
+
+
+--
+-- Name: named_entities_tsearch_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX named_entities_tsearch_idx ON named_entity_meanings USING gin (to_tsvector('english'::regconfig, (name)::text));
+
+
+--
+-- Name: report_websites_report_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX report_websites_report_id ON report_websites USING btree (report_id);
+
+
+--
+-- Name: report_websites_website_id; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX report_websites_website_id ON report_websites USING btree (website_id);
+
+
+--
+-- Name: unq_casedwords_cased; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE UNIQUE INDEX unq_casedwords_cased ON casedwords USING btree (cased);
+
+
+--
+-- Name: unq_morphs_morph; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE UNIQUE INDEX unq_morphs_morph ON morphs USING btree (morph);
+
+
+--
+-- Name: unq_senses_senseid; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE UNIQUE INDEX unq_senses_senseid ON senses USING btree (senseid);
+
+
+--
+-- Name: unq_senses_sensekey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE UNIQUE INDEX unq_senses_sensekey ON senses USING btree (sensekey);
+
+
+--
+-- Name: unq_words_lemma; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE UNIQUE INDEX unq_words_lemma ON words USING btree (lemma);
+
+
+--
+-- Name: adwords_analytics_report_report_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY adwords_analytics_report
+    ADD CONSTRAINT adwords_analytics_report_report_id_fkey FOREIGN KEY (report_id) REFERENCES report(pkid) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_group_permissions_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_group_permissions
+    ADD CONSTRAINT auth_group_permissions_group_id_fkey FOREIGN KEY (group_id) REFERENCES auth_group(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_group_permissions_permission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_group_permissions
+    ADD CONSTRAINT auth_group_permissions_permission_id_fkey FOREIGN KEY (permission_id) REFERENCES auth_permission(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_message_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_message
+    ADD CONSTRAINT auth_message_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_user_groups_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_user_groups
+    ADD CONSTRAINT auth_user_groups_group_id_fkey FOREIGN KEY (group_id) REFERENCES auth_group(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_user_groups_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_user_groups
+    ADD CONSTRAINT auth_user_groups_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_user_user_permissions_permission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_user_user_permissions
+    ADD CONSTRAINT auth_user_user_permissions_permission_id_fkey FOREIGN KEY (permission_id) REFERENCES auth_permission(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: auth_user_user_permissions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_user_user_permissions
+    ADD CONSTRAINT auth_user_user_permissions_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: candidate_scores_candidate_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY candidate_scores
+    ADD CONSTRAINT candidate_scores_candidate_id_fkey FOREIGN KEY (candidate_id) REFERENCES candidates(id);
+
+
+--
+-- Name: candidate_scores_metric_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY candidate_scores
+    ADD CONSTRAINT candidate_scores_metric_id_fkey FOREIGN KEY (metric_id) REFERENCES metrics(id);
+
+
+--
+-- Name: candidates_case_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY candidates
+    ADD CONSTRAINT candidates_case_id_fkey FOREIGN KEY (case_id) REFERENCES cases(id);
+
+
+--
+-- Name: candidates_query_case_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY candidates_query
+    ADD CONSTRAINT candidates_query_case_id_fkey FOREIGN KEY (case_id) REFERENCES cases(id);
+
+
+--
+-- Name: candidates_query_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY candidates_query
+    ADD CONSTRAINT candidates_query_version_id_fkey FOREIGN KEY (version_id) REFERENCES versions(id);
+
+
+--
+-- Name: candidates_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY candidates
+    ADD CONSTRAINT candidates_version_id_fkey FOREIGN KEY (version_id) REFERENCES versions(id);
+
+
+--
+-- Name: cases_language_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY cases
+    ADD CONSTRAINT cases_language_id_fkey FOREIGN KEY (language_id) REFERENCES languages(id);
+
+
+--
+-- Name: collection_cases_case_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY collection_cases
+    ADD CONSTRAINT collection_cases_case_id_fkey FOREIGN KEY (case_id) REFERENCES cases(id);
+
+
+--
+-- Name: collection_cases_collection_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY collection_cases
+    ADD CONSTRAINT collection_cases_collection_id_fkey FOREIGN KEY (collection_id) REFERENCES collections(id);
+
+
+--
+-- Name: collection_scores_collection_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY collection_scores
+    ADD CONSTRAINT collection_scores_collection_id_fkey FOREIGN KEY (collection_id) REFERENCES collections(id);
+
+
+--
+-- Name: collection_scores_metric_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY collection_scores
+    ADD CONSTRAINT collection_scores_metric_id_fkey FOREIGN KEY (metric_id) REFERENCES metrics(id);
+
+
+--
+-- Name: collection_scores_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY collection_scores
+    ADD CONSTRAINT collection_scores_version_id_fkey FOREIGN KEY (version_id) REFERENCES versions(id);
+
+
+--
+-- Name: content_type_id_refs_id_728de91f; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY auth_permission
+    ADD CONSTRAINT content_type_id_refs_id_728de91f FOREIGN KEY (content_type_id) REFERENCES django_content_type(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: django_admin_log_content_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY django_admin_log
+    ADD CONSTRAINT django_admin_log_content_type_id_fkey FOREIGN KEY (content_type_id) REFERENCES django_content_type(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: django_admin_log_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY django_admin_log
+    ADD CONSTRAINT django_admin_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: fk_adjpositions_synsetid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY adjpositions
+    ADD CONSTRAINT fk_adjpositions_synsetid FOREIGN KEY (synsetid) REFERENCES synsets(synsetid);
+
+
+--
+-- Name: fk_adjpositions_wordid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY adjpositions
+    ADD CONSTRAINT fk_adjpositions_wordid FOREIGN KEY (wordid) REFERENCES words(wordid);
+
+
+--
+-- Name: fk_casedwords_wordid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY casedwords
+    ADD CONSTRAINT fk_casedwords_wordid FOREIGN KEY (wordid) REFERENCES words(wordid);
+
+
+--
+-- Name: fk_lexlinks_linkid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY lexlinks
+    ADD CONSTRAINT fk_lexlinks_linkid FOREIGN KEY (linkid) REFERENCES linktypes(linkid);
+
+
+--
+-- Name: fk_lexlinks_synset1id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY lexlinks
+    ADD CONSTRAINT fk_lexlinks_synset1id FOREIGN KEY (synset1id) REFERENCES synsets(synsetid);
+
+
+--
+-- Name: fk_lexlinks_synset2id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY lexlinks
+    ADD CONSTRAINT fk_lexlinks_synset2id FOREIGN KEY (synset2id) REFERENCES synsets(synsetid);
+
+
+--
+-- Name: fk_lexlinks_word1id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY lexlinks
+    ADD CONSTRAINT fk_lexlinks_word1id FOREIGN KEY (word1id) REFERENCES words(wordid);
+
+
+--
+-- Name: fk_lexlinks_word2id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY lexlinks
+    ADD CONSTRAINT fk_lexlinks_word2id FOREIGN KEY (word2id) REFERENCES words(wordid);
+
+
+--
+-- Name: fk_morphmaps_morphid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY morphmaps
+    ADD CONSTRAINT fk_morphmaps_morphid FOREIGN KEY (morphid) REFERENCES morphs(morphid);
+
+
+--
+-- Name: fk_morphmaps_wordid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY morphmaps
+    ADD CONSTRAINT fk_morphmaps_wordid FOREIGN KEY (wordid) REFERENCES words(wordid);
+
+
+--
+-- Name: fk_samples_synsetid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY samples
+    ADD CONSTRAINT fk_samples_synsetid FOREIGN KEY (synsetid) REFERENCES synsets(synsetid);
+
+
+--
+-- Name: fk_semlinks_linkid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY semlinks
+    ADD CONSTRAINT fk_semlinks_linkid FOREIGN KEY (linkid) REFERENCES linktypes(linkid);
+
+
+--
+-- Name: fk_semlinks_synset1id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY semlinks
+    ADD CONSTRAINT fk_semlinks_synset1id FOREIGN KEY (synset1id) REFERENCES synsets(synsetid);
+
+
+--
+-- Name: fk_semlinks_synset2id; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY semlinks
+    ADD CONSTRAINT fk_semlinks_synset2id FOREIGN KEY (synset2id) REFERENCES synsets(synsetid);
+
+
+--
+-- Name: fk_senses_synsetid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY senses
+    ADD CONSTRAINT fk_senses_synsetid FOREIGN KEY (synsetid) REFERENCES synsets(synsetid);
+
+
+--
+-- Name: fk_senses_wordid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY senses
+    ADD CONSTRAINT fk_senses_wordid FOREIGN KEY (wordid) REFERENCES words(wordid);
+
+
+--
+-- Name: fk_synsets_lexdomainid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY synsets
+    ADD CONSTRAINT fk_synsets_lexdomainid FOREIGN KEY (lexdomainid) REFERENCES lexdomains(lexdomainid);
+
+
+--
+-- Name: fk_vframemaps_frameid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY vframemaps
+    ADD CONSTRAINT fk_vframemaps_frameid FOREIGN KEY (frameid) REFERENCES vframes(frameid);
+
+
+--
+-- Name: fk_vframemaps_synsetid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY vframemaps
+    ADD CONSTRAINT fk_vframemaps_synsetid FOREIGN KEY (synsetid) REFERENCES synsets(synsetid);
+
+
+--
+-- Name: fk_vframemaps_wordid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY vframemaps
+    ADD CONSTRAINT fk_vframemaps_wordid FOREIGN KEY (wordid) REFERENCES words(wordid);
+
+
+--
+-- Name: fk_vframesentencemaps_sentenceid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY vframesentencemaps
+    ADD CONSTRAINT fk_vframesentencemaps_sentenceid FOREIGN KEY (sentenceid) REFERENCES vframesentences(sentenceid);
+
+
+--
+-- Name: fk_vframesentencemaps_synsetid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY vframesentencemaps
+    ADD CONSTRAINT fk_vframesentencemaps_synsetid FOREIGN KEY (synsetid) REFERENCES synsets(synsetid);
+
+
+--
+-- Name: fk_vframesentencemaps_wordid; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY vframesentencemaps
+    ADD CONSTRAINT fk_vframesentencemaps_wordid FOREIGN KEY (wordid) REFERENCES words(wordid);
+
+
+--
+-- Name: report_id_refs_pkid_7df35f13; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY report_websites
+    ADD CONSTRAINT report_id_refs_pkid_7df35f13 FOREIGN KEY (report_id) REFERENCES report(pkid) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: report_websites_website_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY report_websites
+    ADD CONSTRAINT report_websites_website_id_fkey FOREIGN KEY (website_id) REFERENCES website(pkid) DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: public; Type: ACL; Schema: -; Owner: postgres
+--
+
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM postgres;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO PUBLIC;
+
+
+--
+-- PostgreSQL database dump complete
+--
+

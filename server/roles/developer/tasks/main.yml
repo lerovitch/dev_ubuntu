@@ -11,8 +11,14 @@
 - name: add postgresql key
   apt_key: url=https://www.postgresql.org/media/keys/ACCC4CF8.asc state=present
 
+- name: add couchbase key
+  apt_key: url=http://packages.couchbase.com/ubuntu/couchbase.key state=present
+
 - name: add postgresql repo 
   apt_repository: repo='deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main' state=present
+
+- name: add couchbase repo
+  apt_repository: repo='deb http://packages.couchbase.com/ubuntu trusty trusty/main'
 
   
 - name: adding packages
@@ -39,6 +45,9 @@
   - libxml2-dev
   - liblzo2-dev
   - libxslt-dev
+  - libbz2-dev
+  - libffi-dev
+  - libsqlite3-dev
 
 - name: adding packages
   action: apt pkg={{item}} state=installed
@@ -100,66 +109,32 @@
 
 - name: install pyenv
   tags: pyenv
+  sudo_user: {{ user }}
   command: sh /tmp/pyenv-installer
 
-- name: copying files to ssh
-  copy: src={{ item }} dest=/home/{{ user }}/.ssh/ owner={{ user }} group={{ user }} mode=0644
-  with_items:
-    - config
-    - id_rsa.pub
-    - known_hosts
-
-- name: copying files to ssh
-  copy: src={{ item }} dest=/home/{{ user }}/.ssh/ owner={{ user }} group={{ user }} mode=0600
-  with_items:
-    - id_rsa
-    - ubuntu.id_rsa
-    - vagrant.id_rsa
+- name: set proper permissions to skyscanner folder
+  sudo: true
+  tags: src
+  file: path=/opt/skyscanner owner={{ user }} group={{ user }} state=directory recurse=yes
 
 - name: Assures /home/{{ user }}/git exits
   tags: dotfiles
   file: path=/home/{{ user }}/git state=directory
 
-- name: cloning dotfiles repo
-  tags: dotfiles
-  git: repo=git@github.com:lerovitch/dotfiles.git dest=/home/{{ user }}/git/dotfiles accept_hostkey=yes key_file=/home/{{ user }}/.ssh/id_rsa
-   
-- name: Assures /home/{{ user }}/git/dotfiles with  proper permissions
-  tags: dotfiles
-  file: path=/home/{{ user }}/git/dotfiles state=directory owner={{ user }} group={{ user }} recurse=yes
-
-- name: Assures /home/{{ user }}/.local/share/fonts dir exists
-  tags: ide
-  file: path=/home/{{ user }}/.local/share/fonts state=directory
-
-- name: copying font file
-  tags: ide
-  copy: src=/home/{{ user }}/git/dotfiles/fonts/Monaco.otf dest=/home/{{ user }}/.local/share/fonts/Monaco.otf owner={{ user }} group={{ user }}
-
-- name: configuring terminator (creating dir)
-  tags: ide
-  file: path=/home/{{ user }}/.config/terminator state=directory
-
-- name: configuring terminator (symbolic link)
-  tags: ide
-  file: src=/home/{{ user }}/git/dotfiles/ubuntu/terminator/config dest=/home/{{ user }}/.config/terminator/config state=link
-          
-- name: configuring bash profile
-  tags: ide
-  file: src=/home/{{ user }}/git/dotfiles/bash/bash_profile dest=/home/{{ user }}/.bashrc state=link force=yes
-
-  
-- name: update font cache
-  tags: ide
+- name: copying files to etc
   sudo: yes
-  command: fc-cache -f -v
-  
+  tags: network
+  copy: src={{ item }} dest=/etc
+  with_items:
+     - hosts
+     - nsswitch.conf
 
+- name: copying interfaces
+  sudo: yes
+  tags: network
+  copy: src=interfaces  dest=/etc/network
 
-
-
-
-
-
- 
-- include: skyscanner.yml
+- name: regenerate resolv.conf file
+  sudo: yes
+  tags: network
+  command: resolvconf -u

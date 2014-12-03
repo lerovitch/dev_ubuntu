@@ -1,0 +1,47 @@
+- name: copying files to ssh
+  copy: src={{ item }} dest=/home/{{ user }}/.ssh/ owner={{ user }} group={{ user }} mode=0644
+  with_items:
+    - config
+    - id_rsa.pub
+    - known_hosts
+
+- name: copying files to ssh
+  copy: src={{ item }} dest=/home/{{ user }}/.ssh/ owner={{ user }} group={{ user }} mode=0600
+  with_items:
+    - id_rsa
+    - ubuntu.id_rsa
+    - vagrant.id_rsa
+
+- name: cloning dotfiles repo
+  tags: dotfiles
+  git: repo=git@github.com:lerovitch/dotfiles.git dest=/home/{{ user }}/git/dotfiles accept_hostkey=yes key_file=/home/{{ user }}/.ssh/id_rsa
+
+- name: Assures /home/{{ user }}/git/dotfiles with  proper permissions
+  tags: dotfiles
+  file: path=/home/{{ user }}/git/dotfiles state=directory owner={{ user }} group={{ user }} recurse=yes
+
+- name: Assures /home/{{ user }}/.local/share/fonts dir exists
+  tags: ide
+  file: path=/home/{{ user }}/.local/share/fonts state=directory
+
+- name: copying font file
+  tags: ide
+  copy: src=/home/{{ user }}/git/dotfiles/fonts/Monaco.otf dest=/home/{{ user }}/.local/share/fonts/Monaco.otf owner={{ user }} group={{ user }}
+
+- name: configuring terminator (creating dir)
+  tags: ide
+  file: path=/home/{{ user }}/.config/terminator state=directory
+
+- name: configuring terminator (symbolic link)
+  tags: ide
+  file: src=/home/{{ user }}/git/dotfiles/ubuntu/terminator/config dest=/home/{{ user }}/.config/terminator/config state=link
+          
+- name: configuring bash profile
+  tags: ide
+  file: src=/home/{{ user }}/git/dotfiles/bash/bash_profile dest=/home/{{ user }}/.bashrc state=link force=yes
+
+  
+- name: update font cache
+  tags: ide
+  sudo: yes
+  command: fc-cache -f -v
