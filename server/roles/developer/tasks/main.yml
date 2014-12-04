@@ -123,7 +123,7 @@
 
 - name: Assures /home/{{ user }}/git exits
   tags: dotfiles
-  file: path=/home/{{ user }}/git state=directory
+  file: path=/home/{{ user }}/git state=directory owner={{ user }} group={{ user }}
 
 - name: copying files to etc
   sudo: yes
