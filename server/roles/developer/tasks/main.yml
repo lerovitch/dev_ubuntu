@@ -48,6 +48,9 @@
   - libbz2-dev
   - libffi-dev
   - libsqlite3-dev
+  - libcouchbase2-libevent
+  - libcouchbase-dev
+  
 
 - name: adding packages
   action: apt pkg={{item}} state=installed
@@ -109,7 +112,8 @@
 
 - name: install pyenv
   tags: pyenv
-  sudo_user: {{ user }}
+  sudo: yes
+  sudo_user: developer
   command: sh /tmp/pyenv-installer
 
 - name: set proper permissions to skyscanner folder

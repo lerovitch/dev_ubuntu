@@ -1,11 +1,14 @@
 - name: create pyenv nlp
-  sudo_user: {{ user }}
-  command: pyenv install 2.7.8
+  sudo: yes
+  sudo_user: developer
+  command: /home/developer/.pyenv/bin/pyenv install 2.7.8
+  ignore_errors: yes
 
 - name: create pyenv nlp
-  sudo_user: {{ user }}
-  command: pyenv virtualenv 2.7.8 nlp
-
+  sudo: yes
+  sudo_user: developer
+  command: /home/developer/.pyenv/bin/pyenv virtualenv 2.7.8 nlp
+  ignore_errors: yes
 
 ###########################
 #  install python requirements

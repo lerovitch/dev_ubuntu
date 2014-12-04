@@ -23,7 +23,7 @@ nosexcover==1.0.10
 pygresql
 pyopenssl==0.14
 supervisor==3.1.2
-http://antlr3.org/download/Python/antlr_python_runtime-3.1.3.tar.gz
+http://artifactory.uk1:8081/artifactory/simple/infrastructure/hotels_backend/src/antlr_python_runtime-3.1.3.tar.gz
 
 # memdebug and memprofiler requirements
 pillow==2.6.1
@@ -36,8 +36,9 @@ http://artifactory.uk1:8081/artifactory/simple/infrastructure/hotels_backend/whe
 txZMQ==0.3.1
 
 # cython extensions
-svn+http://svn.corp.skyscanner.local/svn/befogg/branches/VERSION_0.1/miscellaneous/iconv_exon/src
-svn+http://svn.corp.skyscanner.local/svn/befogg/branches/VERSION_0.1/lib/exon_lzo/src
+http://artifactory.uk1:8081/artifactory/simple/infrastructure/hotels_backend/wheelhouse/third/exon_iconv_fast_functions-0.0.0-cp27-none-linux_x86_64.whl
+http://artifactory.uk1:8081/artifactory/simple/infrastructure/hotels_backend/wheelhouse/third/exon_lzo2_fast_functions-0.0.0-cp27-none-linux_x86_64.whl
+
 
 # tests
 mock==1.0.1
@@ -48,7 +49,6 @@ requests
 jsonschema
 teamcity-messages
 nose
-pyyaml
 nose_parameterized
 
 

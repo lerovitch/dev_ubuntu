@@ -10,9 +10,9 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # please see the online documentation at vagrantup.com.
 
   # Every Vagrant virtual environment requires a box to build off of.
-  config.vm.box = "GR360RY/trusty64-desktop-minimal"
-  #config.vm.box = "package"
-  #config.vm.box_url  = "file://package.box"
+  #config.vm.box = "GR360RY/trusty64-desktop-minimal"
+  config.vm.box = "package"
+  config.vm.box_url  = "file://package.box"
 
   # check if host platform is Linux, if not assume Windows
   linux_compatible = `ansible-playbook --version` rescue nil
@@ -50,7 +50,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # Create a public network, which generally matched to bridged network.
   # Bridged networks make the machine appear as another physical device on
   # your network.
-  # config.vm.network "public_network"
+  config.vm.network "public_network"
 
   # If true, then any SSH connections made will enable agent forwarding.
   # Default value: false
@@ -69,7 +69,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.provider "virtualbox" do |vb|
      # Don't boot with headless mode
      vb.gui = true
-     vb.customize ["modifyvm", :id, "--memory", "4096"]
+     vb.customize ["modifyvm", :id, "--memory", "2048"]
      vb.customize ["modifyvm", :id, "--cpus", "2"]   
      vb.customize ["modifyvm", :id, "--monitorcount", "1"]
      vb.name = "Ubuntu Desktop"
