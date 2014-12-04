@@ -30,15 +30,15 @@
 
 - name: configuring terminator (creating dir)
   tags: ide
-  file: path=/home/{{ user }}/.config/terminator state=directory
+  file: path=/home/{{ user }}/.config/terminator state=directory owner={{ user }} group={{ user }}
 
 - name: configuring terminator (symbolic link)
   tags: ide
-  file: src=/home/{{ user }}/git/dotfiles/ubuntu/terminator/config dest=/home/{{ user }}/.config/terminator/config state=link
+  file: src=/home/{{ user }}/git/dotfiles/ubuntu/terminator/config dest=/home/{{ user }}/.config/terminator/config state=link owner={{ user }} group={{ user }}
           
 - name: configuring bash profile
   tags: ide
-  file: src=/home/{{ user }}/git/dotfiles/bash/bash_profile dest=/home/{{ user }}/.bashrc state=link force=yes
+  file: src=/home/{{ user }}/git/dotfiles/bash/bash_profile dest=/home/{{ user }}/.bashrc state=link force=yes owner={{ user }} group={{ user }}
 
   
 - name: update font cache
