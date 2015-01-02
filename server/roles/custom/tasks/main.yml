@@ -40,7 +40,6 @@
   tags: ide
   file: src=/home/{{ user }}/git/dotfiles/bash/bash_profile dest=/home/{{ user }}/.bashrc state=link force=yes owner={{ user }} group={{ user }}
 
-  
 - name: update font cache
   tags: ide
   sudo: yes

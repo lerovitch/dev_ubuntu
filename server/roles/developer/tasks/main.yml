@@ -106,6 +106,12 @@
 - name: get pycharm
   get_url: url=http://download.jetbrains.com/python/pycharm-professional-3.4.1.tar.gz dest=/home/{{ user }}/pycharm-professional-3.4.1.tar.gz mode=0440 owner={{user}} group={{user}}
   
+- name: unarchive pycharm
+  unarchive: src=/home/{{ user }}/pycharm-professional-3.4.1.tar.gz dest=/home/{{ user }}/pycharm-3.4.1 copy=no
+  
+- name: delete pycharm
+  file: path=/home/{{ user }}/pycharm-professional-3.4.1.tar.gz state=absent
+  
 - name: download pyenv
   tags: pyenv
   get_url: url=https://raw.githubusercontent.com/yyuu/pyenv-installer/master/bin/pyenv-installer dest=/tmp/pyenv-installer  owner={{user}} group={{user}}

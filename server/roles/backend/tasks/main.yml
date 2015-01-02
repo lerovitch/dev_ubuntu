@@ -14,6 +14,10 @@
 #  install python requirements
 ##########################
 
+- name: cloning dotfiles repo
+  tags: dotfiles
+  git: repo=git@git.prod.skyscanner.local:hotels-backend/hotelsbackend.git dest=/home/{{ user }}/git/hotelsbackend accept_hostkey=yes key_file=/home/{{ user }}/.ssh/id_rsa
+  
 - name: copy requirements.txt
   tags: requirements
   copy: src=../files/requirements.txt dest=/tmp/requirements.txt
