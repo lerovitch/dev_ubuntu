@@ -6,6 +6,12 @@
 
 # warning: heavily bodged and hardcoded bootsrtap script for Windows, this is for example / testing / further refinement only - not suitable for distribution
 
+# checking private key 
+FILE=./server/roles/custom/files/id_rsa
+if [ ! -f $FILE ];
+    echo "File $FILE does not exists. copy your private key accesing github repos"
+    exit 1
+fi
 # we need to install Ansible so it can be run locally:  install the EPEL repo so Ansible can be installed via yum
 # install ansible (latest version will do for now - TODO: push the latest rpm distributable into Artifactory and sync it down from there)
 echo "...[INFO] Installing Ansible"
