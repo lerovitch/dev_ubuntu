@@ -17,6 +17,11 @@
 - name: cloning backend repo
   git: repo=git@git.prod.skyscanner.local:hotels-backend/hotelsbackend.git dest=/home/{{ user }}/git/hotelsbackend accept_hostkey=yes key_file=/home/{{ user }}/.ssh/id_rsa
   
+- name: make pyenv local for hotelsbackendrepo
+  sudo: yes
+  sudo_user: developer
+  command: /home/{{ user }}/.pyenv/bin/pyenv local nlp chdir=/home/{{user}}/git/hotelsbackend 
+
 - name: copy requirements.txt
   tags: requirements
   copy: src=../files/requirements.txt dest=/tmp/requirements.txt
