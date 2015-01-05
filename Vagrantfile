@@ -10,9 +10,9 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # please see the online documentation at vagrantup.com.
 
   # Every Vagrant virtual environment requires a box to build off of.
-  #config.vm.box = "GR360RY/trusty64-desktop-minimal"
-  config.vm.box = "package"
-  config.vm.box_url  = "file://package.box"
+  config.vm.box = "lerovitch/ubuntu1404lts"
+  #config.vm.box = "package"
+  #config.vm.box_url  = "file://package.box"
 
   # check if host platform is Linux, if not assume Windows
   linux_compatible = `ansible-playbook --version` rescue nil
