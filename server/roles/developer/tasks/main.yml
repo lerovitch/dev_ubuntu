@@ -107,7 +107,7 @@
   get_url: url=http://download.jetbrains.com/python/pycharm-professional-3.4.1.tar.gz dest=/home/{{ user }}/pycharm-professional-3.4.1.tar.gz mode=0440 owner={{user}} group={{user}}
   
 - name: unarchive pycharm
-  unarchive: src=/home/{{ user }}/pycharm-professional-3.4.1.tar.gz dest=/home/{{ user }}/pycharm-3.4.1 copy=no
+  unarchive: src=/home/{{ user }}/pycharm-professional-3.4.1.tar.gz dest=/home/{{ user }} copy=no
   
 - name: delete pycharm
   file: path=/home/{{ user }}/pycharm-professional-3.4.1.tar.gz state=absent

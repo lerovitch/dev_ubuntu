@@ -12,9 +12,23 @@
     - ubuntu.id_rsa
     - vagrant.id_rsa
 
-- name: cloning dotfiles repo
+- name: downloading dotfiles repo
   tags: dotfiles
-  git: repo=git@github.com:lerovitch/dotfiles.git dest=/home/{{ user }}/git/dotfiles accept_hostkey=yes key_file=/home/{{ user }}/.ssh/id_rsa
+  get_url: url=https://github.com/lerovitch/dotfiles/archive/master.zip dest=/home/{{ user }}/git owner={{ user }} group={{ user }} 
+
+- name: unarchiving dotfiles repo
+  tags: dotfiles
+  unarchive: src=/home/{{ user }}/git/master.zip dest=/home/{{ user }}/git copy=no
+
+- name: stat dotfiles
+  tags: dotfiles
+  stat: path=/home/{{ user }}/git/dotfiles-master
+  register: dotfiles_stat
+
+- name: Move dotfiles 
+  tags: dotfiles
+  command: mv /home/{{ user }}/git/dotfiles-master /home/{{user}}/git/dotfiles
+  when: dotfiles_stat.stat.exists
 
 - name: Assures /home/{{ user }}/git/dotfiles with  proper permissions
   tags: dotfiles
