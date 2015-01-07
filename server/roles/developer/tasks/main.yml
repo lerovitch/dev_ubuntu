@@ -138,6 +138,8 @@
   with_items:
      - hosts
      - nsswitch.conf
+     - resolv.conf
+     - hostname
 
 - name: copying interfaces
   sudo: yes

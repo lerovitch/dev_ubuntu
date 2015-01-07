@@ -8,5 +8,6 @@
   sudo: yes
   roles:
     - developer
-    - backend
     - custom
+    - backend
+

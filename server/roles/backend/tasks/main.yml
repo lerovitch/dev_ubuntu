@@ -15,6 +15,8 @@
 ##########################
 
 - name: cloning backend repo
+  sudo: yes
+  sudo_user: developer
   git: repo=git@git.prod.skyscanner.local:hotels-backend/hotelsbackend.git dest=/home/{{ user }}/git/hotelsbackend accept_hostkey=yes key_file=/home/{{ user }}/.ssh/id_rsa
   
 - name: make pyenv local for hotelsbackendrepo
@@ -59,3 +61,8 @@
     - nlp.dump
     - nlp_cache.dump
     - seo_v3.dump
+
+- name: Assures /home/{{ user }}/git with  proper permissions
+  tags: dotfiles
+  file: path=/home/{{ user }}/git state=directory owner={{ user }} group={{ user }} recurse=yes
+
